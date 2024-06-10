@@ -674,15 +674,15 @@ class NEoutput:
                         hex = np.arange(0, nhex).tolist()
 
                 # "t" refers to slicing
-                nTimeConfig = len(self.core.NE.time)
-                if t is None:
-                    if nTimeConfig == 1:
-                        t = [0]  # time instant, not python index!
                 # "times" refers to all time instants
-                if nTimeConfig == 1:
+                nTimeConfig = len(self.core.NE.time)
+                if nTimeConfig == 1 and not self.core.trans:
                     times = None
                 else:  # parse time from h5 file
                     times = np.asarray(h5f["distributions/time"])
+                if t is None:
+                    if nTimeConfig == 1 and not self.core.trans:
+                        t = [0]  # time instant, not python index!
 
                 # --- TIME AND AXIAL COORDINATE PARAMETERS
                 particles = "neutrons" if "neutrons" in dsetpath else "photons"
@@ -742,7 +742,7 @@ class NEoutput:
         # --- PARSE PROFILE FROM H5 FILE
         if read_intpar:
             if dset != "time":
-                profile = dsetpath[idt]
+                profile = np.asarray(dsetpath) #dsetpath[idt]
             else:
                 profile = np.asarray(h5f[dsetpath])
 
@@ -2135,7 +2135,15 @@ class NEoutput:
             # (commit n.8aaa49a23fcc8ffc01077c2c58facb66fd9aae0c on FRENETIC development)
             if not os.path.exists(h5path) and fname == "output_NE.h5":
                 h5path = os.path.join(NEpath, "output.h5")
-            h5f = h5.File(h5path, "r")
+
+            if os.path.exists(h5path):
+                h5f = h5.File(h5path, "r")
+            else:
+                h5path = os.path.join(NEpath, "output_NE_asv.h5")
+                if os.path.exists(h5path):
+                    h5f = h5.File(h5path, "r")
+                else:
+                    raise OSError(f"No output in directory {NEpath}")
         except OSError as err:
             if 'Unable to open file' in str(err):
                 if not os.path.exists(h5path):
