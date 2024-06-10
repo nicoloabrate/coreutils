@@ -1,5 +1,6 @@
 import os
 import re
+import json
 from warnings import catch_warnings
 from copy import deepcopy as cp
 import shutil as sh
@@ -18,6 +19,9 @@ from coreutils.tools.plot import RadialMap
 from coreutils.core import Core
 from matplotlib import rcParams
 rcParams['text.usetex']= True if sh.which('latex') else False
+
+pwd = Path(__file__).parent
+inp_json_map = pwd.joinpath("THversion.json")
 
 class THoutput:
     """
@@ -63,119 +67,108 @@ class THoutput:
     maximum_descr: dict
         Dict with the descriptions of the Maximum quantities.
     """
-
-    # default keys for integral parameters (namelist)
-    inout = ['densOut', 'densIn', 'enthOut', 'enthIn', 'pIn',
-             'pOut', 'TOut', 'TIn', 'vIn', 'vOut', 'mdotOut',
-             'mdotIn', 
-            #  'time' (currently missing, it should be added despite it would be a copy of `time`
-            #  in the `maximum` group)
-             ]
-
-    maximum = ['Tcoolant', 'Tpin_average', 'Tpin_center', 
-               'Tpin_surface', 'pressure', 'zMax_pressure',
-               'zMax_Tcoolant', 'zMax_Tpin_average', 
-               'zMax_Tpin_center', 'zMax_Tpin_surface', 'time']
-
-    distrout = ['timeDistr', 'T_coolant', 'T_pin_avg', 'T_pin_ctr', 
-                'T_pin_sur', 'density', 'htc', 'pressure',
-                 'q_pin', 'velocity']
-
-
-    aliases = {'densOut': ['Densout', 'densout'], 'densIn': ['Densin', 'densin'],
-               'enthOut': ['Enthout', 'enthout'], 'enthIn': ['Enthin', 'enthin'],
-               'pIn': ['Pin', 'pin'], 'pOut': ['Pout', 'pout'],
-               'TOut': ['Tout', 'tout'], 'TIn': ['Tin', 'tin'],
-               'vIn': ['Vin', 'vin'], 'vOut': ['Vout', 'vout'],
-               'mdotOut': ['mDotout', 'mdotout', 'mDotout'],
-               'mdotIn': ['mDotin', 'mdotin', 'mDotin'],
-               'time': ['Time']
-              }
-
-    distrout_attr = {'timeDistr': 'time instant', 
-                     'T_coolant': 'coolant temperature', 
-                     'T_pin_avg': 'Average pin temperature',
-                     'T_pin_ctr': 'Center pin temperature', 
-                     'T_pin_sur': 'Surface pin temperature', 
-                     'density': 'Coolant density', 
-                     'htc': 'Heat Transfer Coefficient', 
-                     'pressure': 'Coolant pressure',
-                     'q_pin': 'Pin heat flux',
-                     'velocity': 'Coolant velocity'}
-
-    maximum_attr = {'Tcoolant': "max. coolant temp.", 
-                    'Tpin_average': "max. pin avg. temp.", 
-                    'Tpin_center': "max. pin center temp.", 
-                    'Tpin_surface': "max. pin surf. temp.", 
-                    'pressure': "max. pressure", 
-                    'zMax_pressure': "axial coordinate",
-                    'zMax_Tcoolant': "axial coordinate",
-                    'zMax_Tpin_average': "axial coordinate", 
-                    'zMax_Tpin_center': "axial coordinate",
-                    'zMax_Tpin_surface': "axial coordinate"}
-
-    inout_attr = {'densOut': "outlet density", 
-                  'densIn': "inlet density", 
-                  'enthOut': "outlet enthalpy",
-                  'enthIn': "inlet enthalpy",
-                  'pIn': "inlet pressure",
-                  'pOut': "outlet pressure",
-                  'TOut': "outlet temperature",
-                  'Tin': "inlet temperature",
-                  'vIn': "inlet velocity",
-                  'vout': "outlet velocity",
-                  'mdotOut': "outlet massflow",
-                  'mdotin': "inlet massflow"}
-
-    # default profiles unit of measures
-    inout_uom = {'densOut': '[kg/m^3]', 'DensIn': '[kg/m^3]', 'EnthOut': 'J/(kg K)',
-                 'enthIn': '[J/(kg K)]', 'PIn': '[Pa]',
-                 # FIXME Tin should be TIn
-                 'pOut': '[Pa]', 'TOut': '[K]', 'TIn': '[K]', 'vIn': '[m/s]', 
-                 'vOut': '[m/s]', 'mdotOut': '[kg/s]',
-                 'mdotIn': '[kg/s]'}
-
-    distributions_uom = {'timeDistr': '[s]', 'T_coolant': '[K]', 
-                         'T_pin_avg': '[K]', 'T_pin_ctr': '[K]', 
-                         'T_pin_sur': '[K]', 'density': '[kg/m^3]', 
-                         'htc': '[W/(m^2 K)]', 'pressure': '[Pa]',
-                         'q_pin': '[W/m^2]', 'velocity': '[m/s]'}
-
-    maximum_uom = {'Tcoolant': '[K]', 'Tpin_average': '[K]', 
-                   'Tpin_center': '[K]', 
-                   'Tpin_surface': '[K]', 
-                   'pressure': '[Pa]',
-                   'zMax_pressure': '[m]',
-                   'zMax_Tcoolant': '[m]', 'zMax_Tpin_average': '[m]',
-                   'zMax_Tpin_center': '[m]', 'zMax_Tpin_surface': '[m]',
-                }
-
     def __init__(self, path):
         self.casepath = path
         self.THpath = os.path.join(path, 'TH')
         # looking for core file
         self.core = Core(os.path.join(path, 'core.h5'))
+        if hasattr(self.core, "FreneticNamelist"):
+            isSym = self.core.FreneticNamelist["PRELIMINARY"]["isSym"]
+        else:
+            isSym = 0
+
+        self.nhex = int((self.core.nAss-1)/6*isSym)+1 if isSym else self.core.nAss
+
         if hasattr(self.core, "TH"):
             self.mapHAType = {}
             # map HA type to the number of assemblies
-            for nchan, chan in self.core.TH.THassemblytypes.items():
+            for nchan, chan in self.core.TH.HTassemblytypes.items():
                 # loop over time
-                whichHex = self.core.getassemblylist(nchan, self.core.TH.THconfig[0], isfren=True)
+                whichHex = self.core.getassemblylist(nchan, self.core.TH.HTconfig[0], isfren=True)
                 self.mapHAType[nchan] = whichHex
 
-            self.inout = THoutput.inout
-            self.distributions = THoutput.distrout
-            self.maximum = THoutput.maximum
-            self.inout_measure = THoutput.inout_uom
-            self.maximum_measure = THoutput.maximum_uom
-            self.distributions_descr = THoutput.distrout_attr
-            self.maximum_descr = THoutput.maximum_attr
-            self.inout_descr = THoutput.inout_attr
-            self.distributions_measure = THoutput.distributions_uom
         else:
-            raise THoutputError("Object core.h5 does not contain any TH object.")
+            raise THOutputError("Object core.h5 does not contain any TH object.")
 
-    def get(self, which, hex=None, t=None, z=None):
+        # get FRENETIC version map
+        try:
+            with open(inp_json_map) as f:
+                try:
+                    MapOutput = json.load(f)
+                except json.JSONDecodeError as err:
+                    print(err.args[0])
+                    logging.critical(err.args[0])
+                    raise THOutputError(f"{err.args[0]} in {inp}")
+        except FileNotFoundError:
+            raise THOutputError(f"File {inp_json_map} not found!")
+
+        # get FRENETIC output version
+        self.version = THoutput.get_output_version(self.THpath, MapOutput)
+        if self.version not in MapOutput["MapVersion"].keys():
+            if self.version != "0.0":
+                raise THOutputError(f"output version {self.version} not supported!")
+            else:
+                self.MapVersion = MapOutput["MapVersion"]["1.0"]
+        else:
+            self.MapVersion = MapOutput["MapVersion"][self.version]
+
+        vers = float(self.version)
+        if vers <= 1.0:
+            THoutput._fill_deprec_vers_metadata(self.MapVersion)
+        elif vers == 2.0:
+            self.HDF5_path = THoutput.build_HDF5_path(self.MapVersion["data"])
+            dupl_dist = self.MapVersion["data"]["distributions"]
+            dupl_inout = self.MapVersion["data"]["inlet_outlet"]
+            dupl_peak = self.MapVersion["data"]["peak"]
+            self.dupl = dupl_dist + dupl_inout + dupl_peak + ["time"]
+        else:
+            pass
+
+    def get(self, what, t=None, z=None, hex=None, metadata=False):
+        """
+        Get profile from output.
+
+        Parameters
+        ----------
+        what: string
+            Name of the variable to be parsed
+        hex: integer or iterable, optional
+            Number of assembly, by default None.
+        t: float or iterable, optional
+            Time instant(s), by default None.
+        z: float or iterable, optional
+            Axial coordinate(s), by default None.
+
+        Returns
+        -------
+        profile: array
+            Output profile requested.
+        """
+        # select getter method according to the output version
+        if self.version == "0.0":
+            raise OSError("Old txt TH output not supported!")
+        elif self.version == "1.0":
+            if metadata:
+                profile, descr, uom, color = self.get_v1(what, t=t, z=z, hex=hex, metadata=metadata)
+            else:
+                profile = self.get_v1(what, t=t, z=z, hex=hex, metadata=metadata)
+
+        elif self.version == "2.0":
+
+            if metadata:
+                profile, descr, uom, color = self.get_v2(what, t=t, z=z, hex=hex, metadata=metadata)
+            else:
+                profile = self.get_v2(what, t=t, z=z, hex=hex, metadata=metadata)
+
+        else:
+            raise THOutputError(f"v{self.version} unknown!")
+
+        if metadata:
+            return profile, descr, uom, color
+        else:
+            return profile
+
+    def get_v1(self, which, hex=None, t=None, z=None, metadata=False):
         """
         Get profile from output.
 
@@ -211,10 +204,10 @@ class THoutput:
         except OSError as err:
             if 'Unable to open file' in str(err):
                 if not os.path.exists(datapath):
-                    raise THoutputError(f"No output in directory {self.NEpath}")
+                    raise THOutputError(f"No output in directory {self.NEpath}")
                 else:
                     print()
-                    raise NEOutputError(f"{str(err)}\n{h5path} is probably corrupted!")
+                    raise THOutputError(f"{str(err)}\n{h5path} is probably corrupted!")
         if which in self.distributions:
             if which == "timeDistr":
                 times = cp(np.asarray(fh5["distributions"]["timeDistr"])[()])
@@ -228,7 +221,7 @@ class THoutput:
             idx = self.distributions.index(which)
             # check core h5 is present
             if self.core is None:
-                raise THoutputError(f'Cannot provide distributions. \
+                raise THOutputError(f'Cannot provide distributions. \
                                     No `core.h5` file in {self.casepath}')
 
             # --- PARAMETERS
@@ -291,7 +284,7 @@ class THoutput:
                         break
 
                 if notfound:
-                    raise THoutputError(f'{which} not found in data!')
+                    raise THOutputError(f'{which} not found in data!')
 
                 # --- PARAMETERS
                 if hasattr(self.core, "FreneticNamelist"):
@@ -378,6 +371,198 @@ class THoutput:
 
         return profile[:]
 
+    def get_v2(self, what, hex=None, t=None, z=None, metadata=False):
+        """
+        Get profile from output.
+
+        Parameters
+        ----------
+        what: string
+            Name of the variable to be parsed
+        hex: integer or iterable, optional
+            Number of assembly, by default ``None``.
+        t: float or iterable, optional
+            Time instant(s), by default ``None``.
+        z: float or iterable, optional
+            Axial coordinate(s), by default ``None``.
+
+        Returns
+        -------
+        profile: array
+            Output profile requested.
+        """
+        # check alias or derived quantities
+        if what in self.MapVersion["alias"].keys():
+            what = self.MapVersion["alias"][what]
+
+        # --- open
+        h5f = THoutput.myh5open(self.THpath)
+
+        # group content of each list. If duplicates, put them into a list
+        if what in self.dupl:
+            raise THOutputError(f"More than one '{what}' dataset available. Add more details (e.g., group name 'distributions', 'inlet_outlet', 'peak')!")
+
+        dsetpath = None
+        for idx, path in enumerate(self.HDF5_path):
+            if what in path:
+                if "/" in what:
+                    dset = what.split("/")[-1]
+                    dset_in_path = path.split("/")[-1]
+                else:
+                    dset = what
+                    dset_in_path = path.split("/")[-1]
+
+                if dset == dset_in_path:
+                    dsetpath = self.HDF5_path[idx]
+                    break
+
+        if dsetpath is None:
+            raise THOutputError(f"{what} not available in NEoutput v{self.version}")
+        else:
+            if "distributions/" in dsetpath:
+                read_distr = True
+                read_inout = False
+                read_peak = False
+            elif "inlet_outlet/" in dsetpath:
+                read_distr = False
+                read_inout = True
+                read_peak = False
+            elif "peak/" in dsetpath:
+                read_distr = False
+                read_inout = False
+                read_peak = True
+            else:
+                raise THOutputError(f"{what} in THoutput v{self.version} cannot be read!")
+
+        # read
+        # if read_distr:
+        if "time" not in what:
+            # check core h5 is present
+            if self.core is None:
+                raise THOutputError(f'Cannot provide distributions. \
+                                    No `core.h5` file in {self.casepath}')
+
+            if hex is not None:
+                # make FRENETIC numeration consistent with python indexing
+                if isinstance(hex, int):
+                    hex = [hex-1]
+                else:
+                    hex = [h-1 for h in hex] if self.core.dim != 1 else [0]
+            else:
+                if self.core.dim == 1:
+                    hex = [0]  # 0 instead of 1 for python indexing
+                else:
+                    hex = np.arange(0, self.nhex).tolist()
+
+            # "t" refers to slicing
+            nTimeConfig = len(self.core.TH.BCtime)
+            if t is None:
+                if nTimeConfig == 1:
+                    t = [0]  # time instant, not python index!
+            # "times" refers to all time instants
+            if nTimeConfig == 1:
+                times = None
+            else:  # parse time from h5 file
+                if read_distr:
+                    times = np.asarray(h5f["distributions/time"])
+                elif read_inout:
+                    times = np.asarray(h5f["inlet_outlet/time"])
+                else:
+                    times = np.asarray(h5f["peak/time"])
+            # --- TIME AND AXIAL COORDINATE PARAMETERS
+            idt, idz = self._shift_index(t, z, times=times)
+            if read_distr:
+                dimdict = {'iTime': idt, 'iAxNode': idz, 'iChan': hex}
+            else:
+                dimdict = {'iTime': idt, 'iChan': hex}
+
+            if t is not None:
+                timesSnap = self.core.TimeSnap # TODO distinguish existence of snapshots in simulations
+
+        # else:  # integral data
+        #     if dset != "time":
+        #         # check core h5 is present
+        #         if self.core is None:
+        #             raise THOutputError(f'Cannot provide data in "inlet_outlet" or "peak" groups. \
+        #                                 No `core.h5` file in {self.casepath}')
+        #         # "t" refers to slicing
+        #         nTimeConfig = len(self.core.NE.time)
+        #         # "times" refers to all time instants
+        #         if nTimeConfig == 1:
+        #             times = None
+        #         else:  # parse time from h5 file
+        #             if read_inout:
+        #                 times = np.asarray(h5f["inlet_outlet/time"])
+        #             else:
+        #                 times = np.asarray(h5f["peak/time"])
+
+        #         # get t index
+        #         if times is not None:
+        #             if t is not None:
+        #                 if isinstance(t, (list, np.ndarray)):
+        #                     idt = [np.argmin(abs(ti-times)) for ti in t]
+        #                 else:
+        #                     idt = [np.argmin(abs(t-times))]
+        #             else:
+        #                 idt = np.arange(0, len(times)).tolist()
+        #         else:
+        #             idt = 0
+
+        # --- PARSE PROFILE FROM H5 FILE
+        if dset != "time":
+            # parse specified time, assembly, axial node, group, prec. fam.
+            if dsetpath not in h5f:
+                raise THOutputError(f"{dsetpath} not present in HDF5 output NE file!")
+            else:
+                profile = np.asarray(h5f[dsetpath])
+
+            dims = h5f[dsetpath].attrs['dimensions'][0].decode()
+            dims = dims[1:-1].split(", ")
+            dimlst = []
+
+            for d in dims:
+                x = dimdict[d]
+                if x is None:
+                    x = 0 if x == 'iTime' else slice(None)
+                dimlst.append(x)
+
+            profile = profile[np.ix_(*dimlst)]
+        else:
+            profile = np.asarray(h5f[dsetpath])
+
+        # --- parse metadata (unit of measure and description)
+        if metadata:
+            rel_path = path.split("/")[-1]
+            color = self.MapVersion["metadata"]["colormap"][rel_path]
+
+            if not read_distr:
+                description = h5f[dsetpath].attrs["description"][0].decode()
+                # FIXME FIXME FIXME
+                try:
+                    uom = h5f[dsetpath].attrs["unit of measure"][0].decode()
+                except KeyError:
+                    uom = h5f[dsetpath].attrs["unit of meaSrfe"][0].decode()
+            else:
+                
+                    description = h5f[dsetpath].attrs["description"][0].decode()
+                    uom = h5f[dsetpath].attrs["unit of measure"][0].decode()
+        # --- close H5 file
+        h5f.close()
+
+        if metadata:
+
+            if profile.ndim > 0:
+                return profile[:], description, uom, color
+            else:
+                return profile, description, uom, color
+
+        else:
+
+            if profile.ndim > 0:
+                return profile[:]
+            else:
+                return profile
+
     def plot1D(self, which, t=None, ax=None, abscissas=None, z=None, 
                hex=None, leglabels=None, figname=None, xlabel=None,
                xlims=None, ylims=None, ylabel=None, autolabel=True,
@@ -421,9 +606,9 @@ class THoutput:
 
         Raises
         ------
-        THoutputError
+        THOutputError
             If the ``tools`` path in the ``coreutils`` directory is not found.
-        THoutputError
+        THOutputError
             _description_
         """
         if style == 'sty1D.mplstyle':
@@ -432,7 +617,7 @@ class THoutput:
             if toolspath.exists():
                 sty1D = str(Path.joinpath(pwd, "tools", style))
             else:
-                raise THoutputError(f"{toolspath} not found!")
+                raise THOutputError(f"{toolspath} not found!")
         else:
             if not Path(style).exists():
                 logging.warning(f'{style} style sheet not found! \
@@ -669,36 +854,43 @@ class THoutput:
         ------
         ``None``
         """
-        if hasattr(self.core, "FreneticNamelist"):
-            isSym = self.core.FreneticNamelist["PRELIMINARY"]["isSym"]
-        else:
-            isSym = 0
-        nhex = int((self.core.nAss-1)/6*isSym)+1 if isSym else self.core.nAss
         # check data type
         if isinstance(what, dict):  # comparison with FRENETIC and other vals.
-            tallies = np.zeros((self.nAss, len(what.keys())))
+            tallies = np.zeros((nhex, len(what.keys())))
             for i, k in enumerate(what.keys()):
                 v2 = what[k]
-                v1 = self.get(k, hex=hex, t=t, z=z)
+                v1, descr, uom, color = self.get(k, hex=what, t=t, z=z, pre=pre, gro=gro, metadata=True)
                 v1 = np.squeeze(v1)
                 tmp = np.true_divide(norm(v1-v2), norm(v1))
                 tmp[tmp == np.inf] = 0
                 tmp = np.nan_to_num(tmp)
                 tallies[:, i] = tmp*100
 
-        elif isinstance(what, list):  # list of output
-            tallies = np.zeros((self.nAss, len(what)))
-            for i, w in enumerate(what):
-                _tmp = self.get(w, hex=hex, t=t, z=z)
-                tallies[:, i] = np.squeeze(_tmp)
-        elif isinstance(what, (np.ndarray)):
-            tallies = what.tolist()
-            what = None
+        # FIXME: is this really useful?
+
+        # elif isinstance(what, list):  # list of output # TODO TO BE TESTED
+        #     tallies = np.zeros((nhex, len(what)))
+        #     for i, w in enumerate(what):
+        #         _tmp = self.get(w, hex=what, t=t, z=z, 
+        #                         pre=pre, gro=gro)
+        #         tallies[:, i] = np.squeeze(_tmp)
+
         elif isinstance(what, str):  # single output
-            tallies = self.get(what, t=t, z=z)
+            tallies, descr, uom, color = self.get(what, t=t, z=z, metadata=True)
             tallies = np.squeeze(tallies)
+        elif isinstance(what, (np.ndarray)):
+            tallies = what+0
+            what = None
+            if uom is None:
+                raise OSError("unit of measure should be provided!")
+            if descr is None:
+                raise OSError("data legend should be provided!")
+            color = "inferno"
         else:
             raise TypeError('Input must be str, dict or list!')
+
+        if cmap is None:
+            cmap = color
 
         if title is True:
             timeSnap = self.core.TimeSnap
@@ -714,17 +906,6 @@ class THoutput:
                 title = 't=%.2f [s]' % (timeSnap[idt])
 
         if cbarLabel is True:
-            if what in self.distributions_descr.keys():
-                dist = self.distributions_descr[what]
-                uom = self.distributions_measure[what]
-            elif what in self.maximum_descr.keys():
-                dist = self.maximum_descr[what]
-                uom = self.maximum_measure[what]
-            elif what in self.inout_descr.keys():
-                dist = self.inout_descr[what]
-                uom = self.inout_measure[what]
-            else:
-                raise OSError(f"{what} description not found!")
 
             uom = uom.replace('**', '^')
             changes = ['-1', '-2', '-3']
@@ -732,45 +913,7 @@ class THoutput:
                 uom = uom.replace(c, '{%s}' % c)
             uom = uom.replace('*', '~')
             # uom = '$%s$' % uom if usetex is True else uom
-            cbarLabel = r'%s $%s$' % (dist, uom)
-
-        # autoselect colormap
-        if cmap is None:
-            auto_cmap = {
-                        'densOut': "cividis", 
-                        'densIn': "cividis",
-                        'enthOut': "magma",
-                        'enthIn': "magma",
-                        'pIn': "plasma",
-                        'pOut': "plasma",
-                        'TOut': 'coolwarm',
-                        'TIn': 'coolwarm',
-                        'vIn': "viridis",
-                        'vOut': "viridis",
-                        'mdotOut': "viridis",
-                        'mdotIn': "viridis",
-                        'Tcoolant': 'coolwarm',
-                        'Tpin_average': 'coolwarm',
-                        'Tpin_center': 'coolwarm', 
-                        'Tpin_surface': 'coolwarm',
-                        'pressure': "plasma",
-                        'zMax_pressure': 'BrBG',
-                        'zMax_Tcoolant': 'BrBG',
-                        'zMax_Tpin_average': 'BrBG', 
-                        'zMax_Tpin_center': 'BrBG',
-                        'zMax_Tpin_surface': 'BrBG',
-                        'T_coolant': 'coolwarm',
-                        'T_pin_avg': 'coolwarm',
-                        'T_pin_ctr': 'coolwarm', 
-                        'T_pin_sur': 'coolwarm',
-                        'density': "cividis",
-                        'htc': "Reds",
-                        'pressure': "plasma",
-                        'q_pin': "inferno",
-                        'velocity': "viridis"
-                        }
-            cmap = auto_cmap[what]
-
+            cbarLabel = r'%s $%s$' % (descr, uom)
 
         RadialMap(self.core, tallies=tallies, z=z, time=t, 
                   label=label,
@@ -980,5 +1123,122 @@ class THoutput:
 
         return fname
 
-class THoutputError(Exception):
+    @staticmethod
+    def myh5open(THpath, fname="output_TH.h5"):
+        try:
+            h5path = os.path.join(THpath, fname)
+            # back compatibility with v1 of FRENETIC 
+            # (commit n.8aaa49a23fcc8ffc01077c2c58facb66fd9aae0c on FRENETIC development)
+            if not os.path.exists(h5path) and fname == "output_TH.h5":
+                h5path = os.path.join(THpath, "output.h5")
+
+            if os.path.exists(h5path):
+                h5f = h5.File(h5path, "r")
+            else:
+                h5path = os.path.join(THpath, "output_TH_asv.h5")
+                if os.path.exists(h5path):
+                    h5f = h5.File(h5path, "r")
+                else:
+                    raise OSError(f"No output in directory {THpath}")
+        except OSError as err:
+            if 'Unable to open file' in str(err):
+                if not os.path.exists(h5path):
+                    raise OSError(f"No output in directory {THpath}")
+                else:
+                    raise THOutputError(f"{str(err)}\n{h5path} is probably corrupted!")
+            else:
+                raise OSError(str(err))
+        return h5f
+
+    @staticmethod
+    def get_output_version(THpath, MapOutput):
+        try:
+            h5f = THoutput.myh5open(THpath)
+            # check version attribute
+            h5f_attrs = h5f.attrs.keys()
+            if "output version" in h5f_attrs:
+                version = h5f.attrs["output version"][0].decode()
+            else:
+                version = "1.0"
+        except OSError as err:
+            if 'Unable to open file' in str(err):
+                # look for txt files (deprecated format)
+                inoutf = MapOutput["1.0"]["data"]["inlet_outlet"].keys()
+                maxf = MapOutput["1.0"]["data"]["maximum"].keys()
+                dostrf = MapOutput["1.0"]["data"]["distributions"]
+                txt_files = distrf + inoutf + maxf
+                for f in txt_files:
+                    datapath = os.path.join(THpath, f"{f}.out")
+                    if os.path.exists(datapath):
+                        version = "0.0"
+                        break
+                if not os.path.exists(datapath):
+                    if not os.path.exists(h5path):
+                        raise THOutputError(f"No output in directory {THpath}")
+                    else:
+                        raise THOutputError(f"{str(err)}\n{h5path} is probably corrupted!")
+            else:
+                raise THOutputError(err)
+
+        return version
+
+    @staticmethod
+    def get_duplicate_dset_names(mylst, keys=None):
+        dupl = []
+        if keys is None:
+            keys = []
+
+        for l in mylst:
+            if l not in keys:
+                keys.append(l)
+            else:
+                dupl.append(l)
+
+        return dupl
+
+    @staticmethod
+    def is_h5path_valid(h5f, group, version):
+        path = "/".join([h5f.name, group])
+        if path in h5f:
+            return True
+        else:
+            raise THOutputError(f"`{path}` not found in TH output v{version}!")
+
+    @staticmethod
+    def build_HDF5_path(out_tree):
+        HDF5_path = []
+        # key = "distributions"
+        for key, val in out_tree.items():
+
+            if isinstance(val, list):
+                tmp_lst = ["/".join([key, l]) for l in val]
+                HDF5_path.extend(tmp_lst)
+
+            elif isinstance(val, dict):
+
+                for k, v in val.items():
+
+                    if k == "time":
+                        HDF5_path.append("/".join([key, k]))
+                    elif isinstance(v, list):
+                        tmp_lst = ["/".join([k, l]) for l in v]
+                    elif isinstance(v, dict):
+                        lst = THoutput.build_HDF5_path(v)
+                        tmp_lst = []
+                        for l in lst:
+                            tmp_lst.append("/".join([k, l]))
+                    else:
+                        raise THOutputError(f"object of type {type(v)} cannot be handled!")
+
+                    tmp_lst = ["/".join([key, l]) for l in tmp_lst]
+                    HDF5_path.extend(tmp_lst)
+
+            else:
+
+                raise THOutputError(f"object of type {type(v)} cannot be handled!")
+
+        return HDF5_path
+
+
+class THOutputError(Exception):
     pass

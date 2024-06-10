@@ -1,0 +1,192 @@
+{
+"MapVersion" : {
+                "1.0" : {
+                            "data": {
+                                    "inlet_outlet": ["TIn", "TOut", "densIn", "densOut", "enthIn", "enthOut", "mdotIn", "mdotOut","pIn", "pOut", "vIn", "vOut", "time"],
+                                    "distributions": [
+                                                    "timeDistr", "T_coolant", "T_pin_avg", "T_pin_sur", "T_pin_ctr", "density",
+                                                    "htc", "pressure", "q_pin", "velocity"
+                                                    ],
+                                     "maximum": ["Tcoolant", "Tpin_average", "Tpin_center", "Tpin_surface", "pressure",
+                                                "time", "zMax_Tcoolant", "zMax_Tpin_average", "zMax_Tpin_center",
+                                                "zMax_Tpin_surface", "zMax_pressure"] 
+                                    },
+                            "metadata": {
+                                    "distributions": { 
+                                                        "description": {
+                                                                        "timeDistr": "time instant", 
+                                                                        "T_coolant": "coolant temperature", 
+                                                                        "T_pin_avg": "Average pin temperature",
+                                                                        "T_pin_ctr": "Center pin temperature", 
+                                                                        "T_pin_sur": "Surface pin temperature", 
+                                                                        "density": "Coolant density", 
+                                                                        "htc": "Heat Transfer Coefficient", 
+                                                                        "pressure": "Coolant pressure",
+                                                                        "q_pin": "Pin heat flux",
+                                                                        "velocity": "Coolant velocity"
+                                                                        },
+                                                        "uom": {
+                                                                "timeDistr": "[s]", "T_coolant": "[K]", 
+                                                                "T_pin_avg": "[K]", "T_pin_ctr": "[K]", 
+                                                                "T_pin_sur": "[K]", "density": "[kg/m^3]", 
+                                                                "htc": "[W/(m^2 K)]", "pressure": "[Pa]",
+                                                                "q_pin": "[W/m^2]", "velocity": "[m/s]"
+                                                                }
+                                                     },
+                                "maximum": {
+                                                        "description" :{
+                                                                        "Tcoolant": "max. coolant temp.", 
+                                                                         "Tpin_average": "max. pin avg. temp.", 
+                                                                         "Tpin_center": "max. pin center temp.", 
+                                                                         "Tpin_surface": "max. pin surf. temp.", 
+                                                                         "pressure": "max. pressure", 
+                                                                         "zMax_pressure": "axial coordinate",
+                                                                         "zMax_Tcoolant": "axial coordinate",
+                                                                         "zMax_Tpin_average": "axial coordinate", 
+                                                                         "zMax_Tpin_center": "axial coordinate",
+                                                                         "zMax_Tpin_surface": "axial coordinate"
+                                                                        },
+                                                        "uom": {
+                                                                        "Tcoolant": "[K]", "Tpin_average": "[K]", 
+                                                                        "Tpin_center": "[K]", 
+                                                                        "Tpin_surface": "[K]", 
+                                                                        "pressure": "[Pa]",
+                                                                        "zMax_pressure": "[m]",
+                                                                        "zMax_Tcoolant": "[m]", "zMax_Tpin_average": "[m]",
+                                                                        "zMax_Tpin_center": "[m]", "zMax_Tpin_surface": "[m]"
+                                                                }
+                                        },
+                                "inlet_outlet": {
+                                                        "description":  {
+                                                                        "densOut": "outlet density", 
+                                                                        "densIn": "inlet density", 
+                                                                        "enthOut": "outlet enthalpy",
+                                                                        "enthIn": "inlet enthalpy",
+                                                                        "pIn": "inlet pressure",
+                                                                        "pOut": "outlet pressure",
+                                                                        "TOut": "outlet temperature",
+                                                                        "Tin": "inlet temperature",
+                                                                        "vIn": "inlet velocity",
+                                                                        "vout": "outlet velocity",
+                                                                        "mdotOut": "outlet massflow",
+                                                                        "mdotin": "inlet massflow"
+                                                                        },
+                                                        "uom": {
+                                                                        "densOut": "[kg/m^3]", "DensIn": "[kg/m^3]", "EnthOut": "J/(kg K)",
+                                                                         "enthIn": "[J/(kg K)]", "PIn": "[Pa]",
+                                                                         "pOut": "[Pa]", "TOut": "[K]", "TIn": "[K]", "vIn": "[m/s]", 
+                                                                         "vOut": "[m/s]", "mdotOut": "[kg/s]",
+                                                                         "mdotIn": "[kg/s]"
+                                                                }
+                                                        
+                                                        }
+                                        },
+                            "alias" : {
+                                "Densout": "densOut",
+                                "densout": "densOut",
+                                "Densin": "densIn",
+                                "densin": "densIn",
+                                "Enthout": "enthOut",
+                                "enthout": "enthOut",
+                                "Enthin": "enthIn",
+                                "enthin": "enthIn",
+                                "Pin": "pIn",
+                                "pin": "pIn",
+                                "Pout": "pOut",
+                                "pout": "pOut",
+                                "Tout": "TOut",
+                                "tout": "TOut",
+                                "Tin": "TIn",
+                                "tin": "TIn",
+                                "Vin": "vIn",
+                                "vin": "vIn",
+                                "Vout": "vOut",
+                                "vout": "vOut",
+                                "mdotout": "mdotOut",
+                                "mDotout": "mdotOut",
+                                "mdotin": "mdotIn",
+                                "mDotin": "mdotIn",
+                                "Time": "time"
+                            }
+                       },
+                "2.0" : {
+                            "data" : {
+                                    "distributions": ["T_coolant", "T_pin_avg", "T_pin_ctr", "T_pin_srf",
+                                                      "density", "htc", "massflow", "pressure", "q_pin",
+                                                      "time"
+                                                     ],
+                                    "inlet_outlet": ["inlet_velocity",
+                                                     "inlet_density", "inlet_enthalpy", "inlet_massflow",
+                                                     "inlet_pressure", "inlet_temperature",
+                                                     "outlet_velocity",
+                                                     "outlet_density", "outlet_enthalpy", "outlet_massflow",
+                                                     "outlet_pressure", "outlet_temperature",
+                                                     "time"
+                                                     ],
+                                    "peak": ["T_coolant", "T_pin_avg", "T_pin_ctr", "T_pin_srf",
+                                             "pressure", "z(T_coolant)", "z(T_pin_avg)", "z(T_pin_ctr)",
+                                             "z(T_pin_srf)", "z(pressure)", "time"
+                                                ],
+                                    "restart": {"TODO": []}
+                                     },
+                            "metadata" : {
+                                        "colormap": {
+                                                        "massflow": "cividis",
+                                                        "inlet_massflow": "cividis",
+                                                        "outlet_massflow": "cividis",
+                                                        "density": "cividis",
+                                                        "inlet_density": "cividis",
+                                                        "outlet_density": "cividis",
+                                                        "velocity": "cividis",
+                                                        "inlet_velocity": "cividis",
+                                                        "outlet_velocity": "cividis",
+                                                        "inlet_enthalpy": "magma",
+                                                        "outlet_enthalpy": "magma",
+                                                        "T_coolant": "coolwarm",
+                                                        "inlet_temperature": "coolwarm",
+                                                        "outlet_temperature": "coolwarm",
+                                                        "T_pin_ctr": "plasma",
+                                                        "T_pin_avg": "plasma",
+                                                        "T_pin_srf": "plasma",
+                                                        "q_pin": "inferno",
+                                                        "htc": "Reds",
+                                                        "pressure": "PuBu",
+                                                        "outlet_pressure": "PuBu",
+                                                        "inlet_pressure": "PuBu",
+                                                        "z(T_coolant)":"BrBG",
+                                                        "z(T_pin_avg)": "BrBG",
+                                                        "z(T_pin_ctr)": "BrBG",
+                                                        "z(T_pin_srf)": "BrBG",
+                                                        "z(pressure)" :"BrBG"
+                                                }
+                                         },
+                            "alias" : {
+                                "Densout": "outlet_density",
+                                "densout": "outlet_density",
+                                "Densin": "inlet_densisty",
+                                "densin": "inlet_densisty",
+                                "Enthout": "outlet_enthalpy",
+                                "enthout": "outlet_enthalpy",
+                                "Enthin": "inlet_enthalpy",
+                                "enthin": "inlet_enthalpy",
+                                "Pin": "inlet_pressure",
+                                "pin": "inlet_pressure",
+                                "Pout": "outlet_pressure",
+                                "pout": "outlet_pressure",
+                                "Tout": "outlet_temperature",
+                                "tout": "outlet_temperature",
+                                "Tin": "inlet temperature",
+                                "tin": "inlet temperature",
+                                "Vin": "inlet_velocity",
+                                "vin": "inlet_velocity",
+                                "Vout": "outlet_velocity",
+                                "vout": "outlet_velocity",
+                                "mdotout": "outlet_massflow",
+                                "mDotout": "outlet_massflow",
+                                "mdotin": "inlet_massflow",
+                                "mDotin": "inlet_massflow",
+                                "Time": "time"
+                                        }
+                        }
+             }
+}
