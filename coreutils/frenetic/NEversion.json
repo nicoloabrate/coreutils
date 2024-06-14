@@ -248,6 +248,7 @@
                                          },
                             "alias" : {"keff": "k-eigenvalue", "k": "k-eigenvalue", 
                                        "gammaeff": "gamma-eigenvalue",
+                                        "neutrons/flux_adjoint": "neutrons/flux_adj", "neutrons/fluxadj": "neutrons/flux_adj", 
                                        "fluxdir": "flux", 
                                        "flux_adjoint": "flux_adj", "fluxadj": "flux_adj", 
                                        "keffa": "k-eigenvalue_adjoint", "k-eigenvalue adj":"k-eigenvalue_adjoint", 

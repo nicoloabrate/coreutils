@@ -1483,6 +1483,7 @@ class NEoutput:
         ax = plt.gca() if ax is None else ax
         # plot against axial coordinate
         with plt.style.context(sty1D):
+            ax = plt.gca() if ax is None else ax
             handles = []
             handlesapp = handles.append
             ymin, ymax = np.inf, -np.inf
@@ -1737,6 +1738,8 @@ class NEoutput:
             # make input iterables
             if isinstance(gro, int):
                 gro = [gro]
+            if min(gro) <= 0:
+                raise OSError(f"group index cannot be < 0! Cannot parse group {min(gro)}")
             gro = [g-1 for g in gro]
         else:
             if particles == "neutrons":
