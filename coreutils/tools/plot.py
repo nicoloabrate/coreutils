@@ -38,9 +38,10 @@ xkcd = list(colors.XKCD_COLORS.keys())
 mycols1.extend(xkcd)
 
 
-def AxialGeomPlot(core, which, time=0, label=False, dictname=None,
+def AxialGeomPlot(core, which, time=0, label=False, assembly_name=False,
                   figname=None, fren=False, asstype=False,
                   style='axgeom.mplstyle', splitz=False,
+                  color_dict=None,
                   zcuts=False, title=None, scale=1, floating=False,
                   legend=False, seed=None, showhomog=False, **kwargs):
     """
@@ -95,6 +96,10 @@ def AxialGeomPlot(core, which, time=0, label=False, dictname=None,
     ``None``
 
     """
+    if showhomog:
+        if not core.NE.AxialConfig.homogenised:
+            showhomog = False
+
     if style == 'axgeom.mplstyle':
         pwd = Path(__file__).parent
         axgesty = str(Path.joinpath(pwd, style))
@@ -105,7 +110,7 @@ def AxialGeomPlot(core, which, time=0, label=False, dictname=None,
         else:
             axgesty = style
 
-    L = core.Geometry.AssemblyGeometry.edge*2
+    L = core.Geometry.AssemblyGeometry.pitch # edge*2
     # array of assembly type
     NxNy = core.Map.type.size
     config = core.NE.config[time]
@@ -118,7 +123,8 @@ def AxialGeomPlot(core, which, time=0, label=False, dictname=None,
             types.append(t)
 
     if showhomog:
-        reg = list(set(core.NE.labels.values()))
+        # FIXME FIXME TODO
+        reg = list(set(core.NE.AxialConfig.regions.values()))
     else:
         reg = []
         regapp = reg.append
@@ -128,26 +134,6 @@ def AxialGeomPlot(core, which, time=0, label=False, dictname=None,
                     regapp(l)
     nReg = len(reg)
 
-    # --- pick more colors
-    if len(mycols1) < nReg:
-        if seed is None:
-            np.random.seed(1)
-        N = nReg-len(mycols1)
-        # assign random colours
-        for icol in range(N):
-            mycols1.append(np.random.randint(3,))
-
-    # color dict
-    if isinstance(core.NE.plot["regionsplot"], dict):
-        # get labels
-        reg_lbl = []
-        for v in core.NE.plot["regionsplot"].values():
-            if v not in reg_lbl:
-                reg_lbl.append(v)
-        asscol = dict(zip(reg_lbl, mycols1))
-    else:
-        asscol = dict(zip(reg, mycols1))
-
     # open figure
     idx = 0
     labels = []
@@ -155,8 +141,8 @@ def AxialGeomPlot(core, which, time=0, label=False, dictname=None,
     ylo, yup = np.inf, 0
     # --- plot with default or user style
     with plt.style.context(axgesty):
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
+        fig, ax = plt.subplots()
+        # ax = fig.add_subplot(111)
 
         kxy = (core.Map.serpcentermap).items()
         if fren:
@@ -170,23 +156,36 @@ def AxialGeomPlot(core, which, time=0, label=False, dictname=None,
             if key not in which:
                 continue
 
+            # parse axial coordinates
+            asstype = core.NE.assemblytypes[core.getassemblytype(key, config)]
+
+            if showhomog:
+                loz = np.asarray(core.NE.AxialConfig.zcuts[0:-1])
+                upz = np.asarray(core.NE.AxialConfig.zcuts[1:])
+                reg = core.NE.AxialConfig.regions
+                lab = core.NE.AxialConfig.labels
+                zmin = min(loz)
+                zmax = max(upz)
+                deltaz = upz-loz
+            else:
+                loz = np.asarray(core.NE.AxialConfig.cuts[asstype].loz)
+                upz = np.asarray(core.NE.AxialConfig.cuts[asstype].upz)
+                reg = np.asarray(core.NE.AxialConfig.cuts[asstype].reg)
+                lab = np.asarray(core.NE.AxialConfig.cuts[asstype].labels)
+                zmin = min(loz)
+                zmax = max(upz)
+                deltaz = upz-loz
+
+            # parse radial coordinates
+            L = (upz[-1] - loz[0])/5
             if floating:
-                idx = idx + 2*L
+                idx = idx + L*2*3/4
                 x, y = idx, None
             else:
                 x, y = coord
 
             xx.append(x)
-            # parse axial coordinates
-            asstype = core.NE.assemblytypes[core.getassemblytype(key, config)]
 
-            loz = np.asarray(core.NE.AxialConfig.cuts[asstype].loz)
-            upz = np.asarray(core.NE.AxialConfig.cuts[asstype].upz)
-            reg = np.asarray(core.NE.AxialConfig.cuts[asstype].reg)
-            lab = np.asarray(core.NE.AxialConfig.cuts[asstype].labels)
-            zmin = min(loz)
-            zmax = max(upz)
-            deltaz = upz-loz
             back_cols = []
             for iz, dz in enumerate(deltaz):
                 # scale coordinate
@@ -196,37 +195,40 @@ def AxialGeomPlot(core, which, time=0, label=False, dictname=None,
                 ylo = coord[1] if coord[1] < ylo else ylo
                 xup = coord[0] if coord[0] > xup else xup
                 yup = coord[1] if coord[1] > yup else yup
-                # define legend label
-                if isinstance(core.NE.plot["regionsplot"], dict):
-                    axlabel = core.NE.plot["regionsplot"][lab[iz]]
+                # define region color and label
+                if showhomog:
+                    # determine region and resulting color
+                    axhomreg = core.NE.AxialConfig.config_str[asstype][iz]
+                    col_lst = core.NE.AxialConfig.cutscolors[asstype]
+                    # mix colors
+                    r, g, b = 0, 0, 0
+                    for k in col_lst.keys():
+                        col_name = col_lst[k][iz]
+                        if col_name != 0:
+                            r0, g0, b0 = colors.to_rgb(col_name)
+                            w = core.NE.AxialConfig.cutsweights[asstype][k][iz]
+                            r += r0*w
+                            g += g0*w
+                            b += b0*w
+
+                    col = [r, g, b]
+                    if ":" in axhomreg:
+                        axlabel = axhomreg.split(': ')[1]
+                    else:
+                        axlabel = axhomreg
                 else:
-                    axlabel = lab[iz]
+                    if isinstance(core.NE.plot["AXcolors"], dict):
+                        axlabel = core.NE.regionslabel[lab[iz]]
+                    else:
+                        axlabel = lab[iz]
+
+                    col = core.NE.plot['AXcolors'][lab[iz]]
                 # background colors used for b/w decorations (dots and lines)
-                back_cols.append(asscol[axlabel])
+                back_cols.append(col)
                 # define assembly patch
-                asspatch = Rectangle(coord, L, dz, color=asscol[axlabel],
-                                    label=axlabel, ec='k', lw=0.5, **kwargs)
+                asspatch = Rectangle(coord, L, dz, color=col,
+                                    label=axlabel, ec='k', lw=0.25, **kwargs)
                 ax.add_patch(asspatch)
-
-                if dictname is None:
-
-                    if label:  # plot assembly number
-                        if fren:  # FRENETIC numeration
-                            txt = str(core.Map.serp2fren[key])  # translate keys
-                        else:
-                            txt = str(key)
-                        txtcol = 'w' if isDark(asscol[axlabel]) else 'k'
-                        plt.text(x*scale, (loz[iz]+dz/2)*scale, txt, ha='center',
-                                va='center', color=txtcol, fontsize=fontsize)
-                else:
-                    if asstype:
-                        for assN, txt in dictname:
-                            txt = dictname[typelabel[key-1, 0]]
-                            txtcol = 'w' if isDark(asscol[lab[iz]]) else 'k'
-                            x, y = core.Map.serpcentermap[core.Map.fren2serp[assN]]
-                            plt.text(x*scale, (loz[iz]+dz/2)*scale, txt,
-                                    ha='center', va='center',
-                                    color=txtcol, fontsize=fontsize)
 
             # add my cuts on top of patch
             upz = core.NE.AxialConfig.cuts[asstype].upz
@@ -236,9 +238,9 @@ def AxialGeomPlot(core, which, time=0, label=False, dictname=None,
             if zcuts and 'zcuts' in core.NE.AxialConfig.__dict__.keys():
                 for myz in core.NE.AxialConfig.zcuts:
                     # parse which color is in background
-                    zcol = 'w' if isDark(asscol[axlabel]) else 'k'
+                    zcol = 'w' if isDark(col) else 'k'
                     plt.hlines(myz*scale, (x-L/2)*scale, (x+L/2)*scale,
-                               linestyles='-.', linewidth=0.5, edgecolor=zcol)
+                               linestyles='-.', linewidth=0.25, edgecolor=zcol)
                 if myz > loz[iz]:
                     iz += 1
 
@@ -262,26 +264,16 @@ def AxialGeomPlot(core, which, time=0, label=False, dictname=None,
                             iz1 += 1
 
                         # define legend label
-                        if isinstance(core.NE.plot["regionsplot"], dict):
-                            axlabel = core.NE.plot["regionsplot"][lab[iz1]]
-                        else:
-                            axlabel = lab[iz1]
-
-                        zcol = 'w' if isDark(asscol[axlabel]) else 'k'
-                        plt.hlines(zn1*scale, (x-L/2)*scale, (x+L/2)*scale,
-                                   linestyles='-', linewidth=0.1, edgecolor=zcol)
-                        # parse which color is in background
-                        # define legend label
-                        if isinstance(core.NE.plot["regionsplot"], dict):
-                            axlabel = core.NE.plot["regionsplot"][lab[iz2]]
-                        else:
-                            axlabel = lab[iz2]
-
-                        zcol = 'w' if isDark(asscol[axlabel]) else 'k'
-                        plt.hlines(zn2*scale, (x-L/2)*scale, (x+L/2)*scale,
-                                   linestyles='-', linewidth=0.1, edgecolor=zcol)
-                        if zn2 > upz[iz2]:
-                            iz2 += 1
+                        if not showhomog:
+                            zcol = 'w' if isDark(core.NE.plot['AXcolors'][lab[iz1]]) else 'k'
+                            plt.hlines(zn1*scale, (x-L/2)*scale, (x+L/2)*scale,
+                                    linestyles='-', linewidth=0.1, edgecolor=zcol)
+                            # parse which color is in background
+                            zcol = 'w' if isDark(core.NE.plot['AXcolors'][lab[iz2]]) else 'k'
+                            plt.hlines(zn2*scale, (x-L/2)*scale, (x+L/2)*scale,
+                                    linestyles='-', linewidth=0.1, edgecolor=zcol)
+                            if zn2 > upz[iz2]:
+                                iz2 += 1
                         # --- plot node center
                         for izcol in range(izn, nZ):
                             if node >= loz[izcol] and node <= upz[izcol]:
@@ -294,27 +286,36 @@ def AxialGeomPlot(core, which, time=0, label=False, dictname=None,
 
                     nS = nE
 
+            # add assembly name
+            if assembly_name:
+                x, z = (x*scale, upz[-1]*1.1*scale)
+                plt.text(x, z, asstype,
+                        ha='center', va='center',
+                        color='k', fontsize=8)
+
         plt.axis('off')
         ax.set_xlim([min(xx)-L/2, max(xx)+L/2])
         ax.set_ylim([zmin-L/2, zmax+L/2])
+        plt.tight_layout()
         plt.title(title)
         # add legend, if any
         if legend:
+            ncol = 3 if showhomog else 4
             handles, labels = plt.gca().get_legend_handles_labels()
             by_label = OrderedDict(zip(labels, handles))
-            plt.legend(by_label.values(), by_label.keys(), ncol=4,
+            zoffset = (0.2*np.sign(zmin))
+            plt.legend(by_label.values(), by_label.keys(), ncol=ncol,
                        loc="upper center", bbox_transform=ax.transData,
-                       bbox_to_anchor=(np.mean(xx), zmin-0.1),
+                       bbox_to_anchor=(np.mean(xx), zmin + zoffset),
                        fontsize=8)
-        plt.tight_layout()
         # save figure
         if figname is not None:
-            fig.savefig(figname)
+            fig.savefig(figname, bbox_inches='tight')
 
 
 def RadialMap(core, tallies=None, z=0, time=0, pre=0, gro=0, grp=0,
               label=False, figname=None, which=None, fren=False,
-              whichconf='NE', asstype=False, dictname=None, mycols=None,
+              whichconf='NE', asstype=False, dictname=None, colors_dict=None,
               legend=False, fill=True, style='radgeom.mplstyle',
               axes=None, cmap='Spectral_r', thresh=None, fontsize=6,
               cbarfontsize=15, cbarLabel=None, xlabel=None, ylabel=None,
@@ -383,8 +384,6 @@ def RadialMap(core, tallies=None, z=0, time=0, pre=0, gro=0, grp=0,
         isSym = 0
     # FIXME consider also symmetry for cartesian geometry
     nAss = int((core.nAss-1)/6)*isSym+1 if isSym else core.nAss
-    if mycols is None:
-        mycols = mycols1
 
     if cbarLabel is None:
         cbarLabel = "data"
@@ -410,20 +409,32 @@ def RadialMap(core, tallies=None, z=0, time=0, pre=0, gro=0, grp=0,
     if tallies is None:
 
         NxNy = core.Map.type.size
-        if whichconf != "NE":
+        if whichconf == "Geometry":
+            # FIXME FIXME
+            config = core.Geometry.config[time]
+        elif whichconf != "NE":
             config = core.TH.__dict__[f"{whichconf}config"][time]
         else:
             config = core.__dict__[whichconf].config[time]
         # array of assembly type
         typelabel = np.reshape(config, (NxNy, 1))
-        if whichconf != "NE":
+        if whichconf == "Geometry":
+            # FIXME FIXME
+            coretype = core.Geometry.assemblytypes
+        elif whichconf != "NE":
             coretype = core.TH.__dict__[f"{whichconf}assemblytypes"].keys()
         else:
             coretype = core.__dict__[whichconf].assemblytypes.keys() # np.unique(typelabel)  # define
         # color dict
-        if len(coretype) > len(mycols):
-            raise OSError("Need more colours to plot!")
-        asscol = dict(zip(coretype, mycols))
+        if colors_dict is not None:
+            asscol = colors_dict
+            if len(coretype) > len(colors_dict.keys()):
+                i_sa = len(coretype) - len(colors_dict.keys())
+                for sa_type in coretype[i_sa-1]:
+                    colors_dict[sa_type] = mycols1[sa_type]
+        else:
+            mycols = mycols1
+            asscol = dict(zip(coretype, mycols))
 
     else:
         if len(tallies.shape) > 1:
@@ -490,6 +501,8 @@ def RadialMap(core, tallies=None, z=0, time=0, pre=0, gro=0, grp=0,
                     SAslabels = core.TH.BClabels
                 elif whichconf == 'TH':
                     SAslabels = core.TH.THassemblylabels
+                elif whichconf == 'Geometry':
+                    SAslabels = core.Geometry.assemblytypes
 
                 atype = core.getassemblytype(k, config)
                 asspatch = RegularPolygon(xy, core.Geometry.AssemblyGeometry.numedges, radius=L*scale,

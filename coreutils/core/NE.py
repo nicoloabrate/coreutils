@@ -14,7 +14,41 @@ from coreutils.tools.utils import MyDict
 from coreutils.core.UnfoldCore import UnfoldCore
 from coreutils.core.MaterialData import *
 from coreutils.core.Geometry import Geometry, AxialConfig, AxialCuts
+from matplotlib import colors
 
+mycols1 = ["#19647e", "#28afb0", "#ee964b", # generated with Coloor
+           "#ba324f", "#1f3e9e", "#efd28d",
+           "#ffffff", 
+           "#f0c808", "#fff1d0", "#dd1c1a",
+           "#003049", "#d62828", "#f77f00", "#fcbf49", "#eae2b7",
+           "#6C5548", "#B45A38", "#603827", "#13466E", "#F5A964", 
+           "#1980A7", "#491F15", "#006094", "#E8743F", "#2AA3C4", "#1f271b", 
+           "#f66024", "#104b6d", "#3bbeaa", "#18441b", "#79ac3d", "#e27db1", "white",   # generated with Colorgorical (http://vrl.cs.brown.edu/color)
+           "#e99863", "#5b0891", "#3986da", "#8e80fb", "#e3488e", "#02b72e", 
+           "#e26df8", "#52351d", "#852405", "#9ca08c", "#2524f9", "#e194be", "#fa1bfc",
+           "#851657"]
+xkcd = list(colors.XKCD_COLORS.keys())  
+mycols1.extend(xkcd)
+
+# # --- pick more colors
+# if len(mycols1) < nReg:
+#     if seed is None:
+#         np.random.seed(1)
+#     N = nReg-len(mycols1)
+#     # assign random colours
+#     for icol in range(N):
+#         mycols1.append(np.random.randint(3,))
+
+# # color dict
+# if isinstance(core.NE.plot["regionslabel"], dict):
+#     # get labels
+#     reg_lbl = []
+#     for v in core.NE.plot["regionslabel"].values():
+#         if v not in reg_lbl:
+#             reg_lbl.append(v)
+#     asscol = dict(zip(reg_lbl, mycols1))
+# else:
+#     asscol = dict(zip(reg, mycols1))
 
 class NE:
     """
@@ -57,6 +91,13 @@ class NE:
         # parse inp args
         dim = CI.dim
         self.NEtoGE = NEargs['assemblynames']
+        # --- ADD OPTIONAL PLOTTING ARGUMENTS
+        self.plot = {}
+        self.plot['SAcolors'] = NEargs["sacolors"]
+        self.plot['AXcolors'] = NEargs["axcolors"]
+        self.plot['axplot'] = NEargs["axplot"]
+        self.plot['radplot'] = NEargs["radplot"]
+
         assemblynames = tuple(NEargs['assemblynames'])
 
         cuts = {'xscuts': NEargs['xscuts'],
@@ -72,7 +113,7 @@ class NE:
         if cuts is not None and dim != 2:
             # initial axial configuration
             self.AxialConfig = AxialConfig(cuts, NEargs['splitz'], labels=NEargs['labels'], 
-                                            NE_dim=dim, assemblynames=assemblynames)
+                                           NE_dim=dim, assemblynames=assemblynames, colors=self.plot['AXcolors'])
 
         # --- PARSE INPUT REGIONS
         if dim == 2:
@@ -430,16 +471,22 @@ class NE:
             self.energygrid = fewgrp
             self.egridname = egridname
 
-        # --- ADD OPTIONAL OUTPUT ARGUMENTS
-        self.plot = {}
-        self.plot['axplot'] = NEargs["axplot"]
-        self.plot['radplot'] = NEargs["radplot"]
-        # FIXME TODO temporary patch
-        for v in self.labels.values():
-            if v not in NEargs["regionsplot"]:
-                NEargs["regionsplot"][v] = v
-        self.plot['regionsplot'] = NEargs["regionsplot"]
+        if NEargs["regionslabel"] is None:
+            if CI.dim != 2:
+                self.regionslabel = {}
+                for a in self.AxialConfig.cuts.keys():
+                    for c in self.AxialConfig.cuts[a].labels:
+                        self.regionslabel[c] = c
+            else:
+                lst = list(self.assemblylabel.keys())
+                self.regionslabel = dict(zip(lst, lst))
+        else:
+            self.regionslabel = NEargs["regionslabel"]
 
+        # # FIXME TODO temporary patch
+        # for v in self.labels.values():
+        #     if v not in NEargs["regionslabel"]:
+        #         NEargs["regionslabel"][v] = v
 
         self.worksheet = NEargs["worksheet"]
 
@@ -480,7 +527,7 @@ class NE:
         asstypes = self.assemblytypes.reverse()
         for NEtype in repl.keys():
             if NEtype not in self.assemblytypes.values():
-                raise OSError(f"SA {NEtype} not defined! Replacement cannot be performed!")
+                raise OSError(f"SA {NEtype} not defined in NE config! Replacement cannot be performed!")
             lst = repl[NEtype]
             if not isinstance(lst, (list, str)):
                 raise OSError("replaceSA must be a dict with SA name as key and"
@@ -712,11 +759,12 @@ class NE:
 
                         self.AxialConfig.cuts[newtype] = AxialCuts(upz, loz, reg, lab)
                         cuts = list(zip(cuts.reg, cuts.labels, cuts.loz, cuts.upz))
-                        zr, zl, zw = self.AxialConfig.mapFine2Coarse(cuts, self.AxialConfig.zcuts)
+                        zr, zl, zw, zc = self.AxialConfig.mapFine2Coarse(cuts, self.AxialConfig.zcuts, self.plot['AXcolors'])
                         # --- update info for homogenisation
                         self.AxialConfig.cutsregions[newtype] = zr
                         self.AxialConfig.cutslabels[newtype] = zl
                         self.AxialConfig.cutsweights[newtype] = zw
+                        self.AxialConfig.cutscolors[newtype] = zc
                         # TODO add new data if replaced region is missing
                         # if withreg not in self.data[core.TfTc[0]].keys():
                         #     self.get_material_data([withreg], core, datacheck=datacheck)
@@ -731,11 +779,12 @@ class NE:
                     # --- update cuts object
                     self.AxialConfig.cuts[newtype] = cuts
                     cuts = list(zip(cuts.reg, cuts.labels, cuts.loz, cuts.upz))
-                    zr, zl, zw = self.AxialConfig.mapFine2Coarse(cuts, self.AxialConfig.zcuts)
+                    zr, zl, zw, zc = self.AxialConfig.mapFine2Coarse(cuts, self.AxialConfig.zcuts, self.plot['AXcolors'])
                     # --- update info for homogenisation
                     self.AxialConfig.cutsregions[newtype] = zr
                     self.AxialConfig.cutslabels[newtype] = zl
                     self.AxialConfig.cutsweights[newtype] = zw
+                    self.AxialConfig.cutscolors[newtype] = zc
 
                     regs = []
                     lbls = []
@@ -1066,10 +1115,14 @@ class NE:
             now = self.time[nt-1]
             time = self.time[nt]
         
-        iT = 0  # replacement counter
+        # account for repetitions for updating replacement counter
+        repetitions = []
         for v in list(self.regions.values()):
             if action in v:
-                iT += 1
+                repetitions.append(v.split(action)[0])
+
+        repetitions = list(set(repetitions))
+        iT = len(repetitions)
 
         for dz, which in zip(transconfig['dz'], transconfig['which']):
             # repeat configuration if dz = 0
@@ -1103,11 +1156,12 @@ class NE:
                         cuts.loz[1:] = [z+dz for z in cuts.loz[1:]]
                         self.AxialConfig.cuts[newtype] = AxialCuts(cuts.upz, cuts.loz, cuts.reg, cuts.labels)
                         cuts = list(zip(cuts.reg, cuts.labels, cuts.loz, cuts.upz))
-                        zr, zl, zw = self.AxialConfig.mapFine2Coarse(cuts, self.AxialConfig.zcuts)
+                        zr, zl, zw, zc = self.AxialConfig.mapFine2Coarse(cuts, self.AxialConfig.zcuts, self.plot['AXcolors'])
                         # --- update info for homogenisation
                         self.AxialConfig.cutsregions[newtype] = zr
                         self.AxialConfig.cutslabels[newtype] = zl
                         self.AxialConfig.cutsweights[newtype] = zw
+                        self.AxialConfig.cutscolors[newtype] = zc
 
                         regs = []
                         lbls = []

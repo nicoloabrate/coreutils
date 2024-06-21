@@ -23,6 +23,11 @@ setToValue = {
                         'pin': None,
                         'lattice': None,
                         'assembly': None,
+                        'replaceSA': None,
+                        'fren': True,
+                        'axplot': False,
+                        'radplot': False,
+                        'SAcolors': False,
                       },
                 'NE': {
                         'NEdata': None,
@@ -36,8 +41,11 @@ setToValue = {
                         'replace': None,
                         'replaceSA': None,
                         'assemblylabel': None,
+                        'regionslabel': None,
                         'axplot': False,
                         'radplot': False,
+                        'SAcolors': False,
+                        'AXcolors': False,
                         'worksheet': False,
                       },
                 'TH': {
@@ -54,6 +62,8 @@ setToValue = {
                         'BCs': None,
                         'axplot': False,
                         'radplot': False,
+                        'SAcolors_TH': False,
+                        'SAcolors_BC': False,
                         'worksheet': False,
                        },
                 "FRENETIC-NML": None

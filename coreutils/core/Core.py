@@ -196,6 +196,13 @@ class Core:
 
         # --- GE object
         self.Geometry = Geometry(GEargs=GEargs)
+        # backward compatibility
+        if dim != 1:
+            self.Map = self.Geometry.Map
+            self.nAss = self.Geometry.nAss
+        else:
+            NEcore = [1]
+            self.nAss = 1
 
         # --- NE OBJECT
         if isNE:
@@ -203,16 +210,9 @@ class Core:
             assemblynames = NEargs['assemblynames']
             nAssTypes = 1 if dim == 1 else len(assemblynames)
             assemblynames = MyDict(dict(zip(assemblynames.keys(), np.arange(1, nAssTypes+1))))
-            if dim != 1:
-                tmp = UnfoldCore(NEargs['filename'], NEargs['rotation'], assemblynames)
-                NEcore = tmp.coremap
-                self.Map = Map(NEcore, NEargs['rotation'], self.Geometry.AssemblyGeometry, inp=tmp.inp)
-                if not hasattr(self, 'Nass'):
-                    self.nAss = len((self.Map.serpcentermap))
-            else:
-                NEcore = [1]
-                self.nAss = 1
             datacheck = 1
+            tmp = UnfoldCore(NEargs['filename'], NEargs['rotation'], assemblynames)
+            NEcore = tmp.coremap
             self.NE = NE(NEargs, self, datacheck=datacheck)
 
         # --- TH OBJECT
@@ -222,15 +222,11 @@ class Core:
             nAssTypes = len(assemblynames)
             assemblynames = MyDict(dict(zip(assemblynames, np.arange(1, nAssTypes+1))))
             THcore = UnfoldCore(THargs['htdata']['filename'], THargs['rotation'], assemblynames).coremap
-            if not hasattr(self, 'Map'):
-                self.Map = Map(THcore, THargs['rotation'], self.Geometry.AssemblyGeometry, inp=tmp.inp)
-            if not hasattr(self, 'Nass'):
-                self.nAss = len((self.Map.serpcentermap))
-
             self.TH = TH(THargs, self)
 
         # --- NE and TH CONSISTENCY CHECK
         if isNE and isTH:
+
             # dimensions consistency check
             BCcore = self.TH.BCconfig[0]
             if BCcore.shape != NEcore.shape:

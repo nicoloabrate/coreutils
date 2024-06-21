@@ -137,6 +137,8 @@ class TH:
 
         # --- ADD OPTIONAL OUTPUT ARGUMENTS
         self.plot = {}
+        self.plot['SAcolors_BC'] = THargs["sacolors_bc"]
+        self.plot['SAcolors_TH'] = THargs["sacolors_th"]
         self.plot['axplot'] = THargs["axplot"]
         self.plot['radplot'] = THargs["radplot"]
         self.worksheet = THargs["worksheet"]
@@ -199,7 +201,7 @@ class TH:
         
         for SAtype in repl.keys():
             if SAtype not in asstypes.keys():
-                raise OSError(f"SA {SAtype} not defined in {configtype} config.! Replacement cannot be performed!")
+                raise OSError(f"SA {SAtype} not defined in {configtype} config! Replacement cannot be performed!")
             lst = repl[SAtype]
             if not isinstance(lst, list):
                 raise OSError("replaceSA must be a dict with SA name as key and"

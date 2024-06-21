@@ -81,6 +81,7 @@ def fillFreneticNamelist(core):
     core.FreneticNamelist['nR'] = nR
     core.FreneticNamelist['nDiff'] = nDiff
     core.FreneticNamelist['HexPitch'] = pitch/100
+    core.FreneticNamelist['iTyCool'] = core.coolant
     lexag = np.nan
     for latname, lat in core.Geometry.LatticeGeometry.items():
         if lat.wrapWidth > 0 and lat.nPins > 0:
@@ -206,7 +207,7 @@ def fillFreneticNamelist(core):
 
             # TODO only one lattice axially, more should be considered
             GEtype = core.TH.HTtoGE[HTtype][0]
-            latname = core.Geometry.AssemblyType[GEtype].reg[0]
+            latname = core.Geometry.AssemblyDefinition[GEtype].reg[0]
             lattice = core.Geometry.LatticeGeometry[latname]
             # TODO only one pin type per lattice, more should be considered
             pinname = core.Geometry.LatticeType[latname][0]
@@ -386,6 +387,8 @@ def inpgen(core, json):
     casepath = mkdir(join(iwd, casename))
     AUXpath = mkdir("auxiliary", casepath)
 
+    AUXpathGE = mkdir("geometry", AUXpath)
+
     if hasattr(core, "NE"):
         AUXpathNE = mkdir("NE", AUXpath)
 
@@ -525,10 +528,64 @@ def inpgen(core, json):
         pass
         # logging.warn('No TH configuration, so HA_xx_xx.inp not written and other data not created!')
 
+    auxGE(core, AUXpathGE)
     if NE:
         auxNE(core, AUXpathNE)
     if TH:
         auxTH(core, AUXpathTH)
+
+def auxGE(core, AUXpathGE):
+    """Generate GE auxiliary files.
+
+    Parameters
+    ----------
+    core : :class:`coreutils.core.Core`
+        Core object created with Core class.
+    AUXpathGE : str
+        Path to auxiliary NE directory.
+    """
+    # plot configurations
+    if core.dim == 3:
+        offset = core.Map.fren2serp[1]
+        angle = np.radians(60)
+        whichSA = None
+
+    AUX_GE_plot = []
+    asslabel = core.Geometry.assemblytypes
+
+    if core.Geometry.plot["SAcolors"] is not None:
+        colors_dict = {} 
+        for idx, name  in core.Geometry.assemblytypes.items():
+            colors_dict[idx] = core.Geometry.plot["SAcolors"][name]
+    else:
+        colors_dict = None
+
+    # --- plot core radial configuration
+    if core.Geometry.plot['radplot']:
+        if core.dim != 1:
+            for fmt in figfmt:
+                # assembly numbers
+                figname = f'GE-rad-map.{fmt}'
+                AUX_GE_plot.append(figname)
+                RadialMap(core, label=True, fren=True, whichconf="Geometry", 
+                            legend=True, asstype=True, colors_dict=colors_dict,
+                            figname=figname)
+
+        # radial configurations
+        figname = f'GE-rad-conf.{fmt}'
+        AUX_GE_plot.append(figname)
+        RadialMap(core, time=0, label=True, fren=True, 
+                    whichconf="Geometry", dictname=asslabel,
+                    legend=True, asstype=True, colors_dict=colors_dict,
+                            figname=figname)
+    # move files in directory
+    for f in AUX_GE_plot:
+        try:
+            move(f, join(AUXpathGE, f))
+        except SameFileError:
+            os.remove(join(AUXpathGE, f))
+            logging.warning('Overwriting file {}'.format(f))
+            move(f, join(AUXpathGE, f))
 
 
 def auxNE(core, AUXpathNE):
@@ -549,6 +606,14 @@ def auxNE(core, AUXpathNE):
 
     AUX_NE_plot = []
     asslabel = core.NE.assemblytypes
+
+    if core.NE.plot["SAcolors"] is not None:
+        colors_dict = {} 
+        for idx, name  in core.NE.assemblytypes.items():
+            colors_dict[idx] = core.NE.plot["SAcolors"][name]
+    else:
+        colors_dict = None
+
     # --- plot core radial configuration
     if core.NE.plot['radplot']:
         if core.dim != 1:
@@ -557,14 +622,16 @@ def auxNE(core, AUXpathNE):
                 figname = f'NE-rad-map.{fmt}'
                 AUX_NE_plot.append(figname)
                 RadialMap(core, label=True, fren=True, whichconf="NE", 
-                            legend=True, asstype=True, figname=figname)
+                            legend=True, asstype=True, colors_dict=colors_dict,
+                            figname=figname)
                 # radial configurations
                 for itime, t in enumerate(core.NE.time):
                     figname = f'NE-rad-conf{itime}-t{1E3*t:g}_ms.{fmt}'
                     AUX_NE_plot.append(figname)
                     RadialMap(core, time=t, label=True, fren=True, 
                                 whichconf="NE", dictname=asslabel,
-                                legend=True, asstype=True, figname=figname)
+                                colors_dict=colors_dict, legend=True, asstype=True, 
+                                figname=figname)
                 # --- user-defined custom figures
                 if "plot" in core.NE.__dict__.keys():
                     if isinstance(core.NE.plot['radplot'], list):
@@ -596,7 +663,7 @@ def auxNE(core, AUXpathNE):
 
                             RadialMap(core, time=radtime, label=True, fren=True, 
                                         whichconf="NE", dictname=labeldict, which=whichSA,
-                                        legend=True, asstype=asstype, figname=figname)
+                                        legend=True, colors_dict=colors_dict, asstype=asstype, figname=figname)
 
     # --- plot core axial configurations
     if core.NE.plot['axplot']:
@@ -642,11 +709,22 @@ def auxNE(core, AUXpathNE):
                                 figname=figname, legend=True, floating=True)
                     plt.close()
 
+                    # plot all assemblies at t with FRENETIC axial nodes over the reference axial geometry
                     figname = f'NE-ax-alltypes-splitz-conf{itime}-t{1E3*t:g}_ms.{fmt}'
                     AUX_NE_plot.append(figname)
                     AxialGeomPlot(core, allassbly, time=t, fren=True, zcuts=True,
+                                    assembly_name=True,
                                     splitz=True, figname=figname, legend=True, floating=True)
                     plt.close()
+
+                    # plot all assemblies at t with FRENETIC axial nodes over the homogenised axial geometry
+                    if core.NE.AxialConfig.homogenised:
+                        figname = f'NE-ax-alltypes-splitz-homog-conf{itime}-t{1E3*t:g}_ms.{fmt}'
+                        AUX_NE_plot.append(figname)
+                        AxialGeomPlot(core, allassbly, time=t, fren=True, zcuts=True,
+                                      assembly_name=True, showhomog=True,
+                                      splitz=True, figname=figname, legend=True, floating=True)
+                        plt.close()
 
                     # plot y=0 SAs
                     figname = f'NE-ax-x0-conf{itime}-t{1E3*t:g}_ms.{fmt}'

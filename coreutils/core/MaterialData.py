@@ -32,7 +32,7 @@ serp_keys = [*scatt_keys, *xsdf_keys, *ene_keys, 'infFlx']
 
 sumxs = ['Tot', 'Abs', 'Remxs']
 indepdata = ['Capt', 'Fiss', 'S0', 'Nubar', 'Diffcoef', 'Chid', 'Chip']
-basicdata = ['Fiss', 'Nubar', 'S0', 'Chit']
+basicdata = ['Fiss', 'Nubar', 'S0', 'Chit', 'Nsf']
 kinetics = ['lambda', 'beta']
 alldata = list(set([*sumxs, *indepdata, *basicdata, *kinetics]))
 
@@ -185,6 +185,10 @@ def Homogenise(materials, weights, mixname):
             # homogdata = np.dot(flux, data)/sum(flux)
             # --- cross section and inverse of velocity
             if key in collapse_xs:
+                if key in ["S1", "Sp0", "Sp1"]:
+                    if not hasattr(homogmat, key):
+                        continue
+
                 if i == 0:
                     homogmat.__dict__[key] = w*mat[key]*flx
                 else:
@@ -840,12 +844,21 @@ class NEMaterial():
         # check basic reactions existence
         for s in basicdata:
             if s not in datavail:
-                raise OSError(f'{s} is missing in {self.UniName} data!')
+                if (s == 'Nsf' and 'Nubar' in datavail) or (s == 'Nubar' and 'Nsf' in datavail):
+                    continue
+                else:
+                    raise OSError(f'{s} is missing in {self.UniName} data!')
         # --- compute in-group scattering
         InScatt = np.diag(self.S0)
         sTOT = self.S0.sum(axis=0) if len(self.S0.shape) > 1 else self.S0
         # --- compute fission production cross section
-        self.Nsf = self.Fiss*self.Nubar
+        if hasattr(self, 'Nubar'):
+            self.Nsf = self.Fiss*self.Nubar
+        else:
+            if max(self.Fiss) > 0:
+                self.Nubar = self.Nsf / self.Fiss
+            else:
+                self.Nubar = self.Fiss # no fission
         # --- compute missing sum reactions
         if 'Capt' in datavail:
             self.Abs = self.Fiss+self.Capt

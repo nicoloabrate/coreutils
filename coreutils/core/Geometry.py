@@ -1,7 +1,7 @@
 import numpy as np
+from coreutils.core.Map import Map
 from coreutils.tools.utils import MyDict
 from coreutils.core.UnfoldCore import UnfoldCore
-
 
 class Geometry:
     """Define an object representing the geometry of the core.
@@ -63,13 +63,17 @@ class Geometry:
 
         self.config = {}
         assemblynames = MyDict(dict(zip(assemblynames, np.arange(1, len(assemblynames)+1))))
-        # --- define core Map, assembly names and types
+        # define dict mapping strings into ints for assembly type
+        nReg = len(assemblynames)
+        # FIXME FIXME keep this name but change AssemblyType to avoid confusion
+        self.assemblytypes = MyDict(dict(zip(np.arange(1, nReg+1), assemblynames)))
+
         # --- define core time-dep. configurations 
         # TODO consider (and add) translations operated in the NE module
         self.config[0] = UnfoldCore(inpdict['filename'], inpdict['rotation'], assemblynames).coremap
 
         # --- assign axial regions (lattice)
-        self.AssemblyType = {}
+        self.AssemblyDefinition = {}
         for SA, axlat in inpdict['assembly'].items():
             # TODO add sanity check on axlat
 
@@ -81,7 +85,7 @@ class Geometry:
                 reg[iax] = s[0]
                 upz[iax] = s[1] if s[1] > s[2] else s[2]
                 loz[iax] = s[2] if s[1] > s[2] else s[1]
-            self.AssemblyType[SA] = AxialCuts(upz, loz, reg)
+            self.AssemblyDefinition[SA] = AxialCuts(upz, loz, reg)
         # --- LATTICE
         if 'lattice' in inpdict.keys():
             self.LatticeType = {}
@@ -169,7 +173,26 @@ class Geometry:
                 self.LatticeGeometry[name] = LatticeGeometry(self.AssemblyGeometry.pitch, n_pins, pin_radius, pin_pitch, 
                                                         lattype, wrap_width, wrap_mat, inter_ass_width)
 
+        if inpdict['dim'] != 1:
+            tmp = UnfoldCore(inpdict['filename'], inpdict['rotation'], assemblynames)
+            GEcore = tmp.coremap
+        else:
+            GEcore = [1]
+            self.nAss = 1
 
+        self.Map = Map(GEcore, inpdict['rotation'], self.AssemblyGeometry, inp=tmp.inp)
+        if not hasattr(self, 'Nass'):
+            self.nAss = len((self.Map.serpcentermap))
+
+        if inpdict["replacesa"] is not None:
+            self.replaceSA(self.config[0], inpdict["replacesa"], 0, inpdict["dim"], 
+                            isfren=inpdict['fren'])
+
+        # additional parameters
+        self.plot = {}
+        self.plot['SAcolors'] = inpdict["sacolors"]
+        self.plot['axplot'] = inpdict["axplot"]
+        self.plot['radplot'] = inpdict["radplot"]
 
     def _from_dict(self, inpdict):
         """Parse object from dictionary.
@@ -183,10 +206,10 @@ class Geometry:
         for k, v in inpdict.items():
             if k == "AssemblyGeometry":
                 setattr(self, k, AssemblyGeometry(inpdict=v))
-            elif k == "AssemblyType":
+            elif k == "AssemblyDefinition" or k == "AssemblyType": # back-compatibility
                 setattr(self, k, {})
                 for AssType, inp in v.items():
-                    self.AssemblyType[AssType] = AxialCuts(inpdict=inp)
+                    self.AssemblyDefinition[AssType] = AxialCuts(inpdict=inp)
             elif k == "LatticeGeometry":
                 setattr(self, k, {})
                 for AssType, inp in v.items():
@@ -200,6 +223,64 @@ class Geometry:
                     v = v.decode()
                 setattr(self, k, v)
 
+    def replaceSA(self, core, repl, time, dim, isfren=False):
+        """
+        Replace full assemblies.
+
+        Parameters
+        ----------
+        repl : dict
+            Dictionary with SA name as key and list of SAs to be replaced as value
+        isfren : bool, optional
+            Flag for FRENETIC numeration, by default ``False``.
+
+        Returns
+        -------
+        ``None``
+
+        """
+        if float(time) in self.config.keys():
+            now = float(time)
+        else:
+            nt = self.time.index(float(time))
+            now = self.time[nt-1]
+            time = self.time[nt]
+        
+        asstypes = self.assemblytypes.reverse()
+        for GEtype in repl.keys():
+            if GEtype not in self.assemblytypes.values():
+                raise OSError(f"SA {GEtype} not defined in Geometry! Replacement cannot be performed!")
+            lst = repl[GEtype]
+            if not isinstance(lst, (list, str)):
+                raise OSError("replaceSA must be a dict with SA name as key and"
+                                "a list with assembly numbers (int) to be replaced"
+                                "as value or the SA name to be replaced!")
+            # ensure current config. is taken when multiple replacement occurs at the same time
+            if time in self.config.keys():
+                current_config = self.config[time]
+            else:
+                current_config = self.config[now]
+
+            if isinstance(lst, str):
+                lst = core.getassemblylist(asstypes[lst], current_config, isfren=isfren)
+
+            if dim == 1:
+                newcore = [asstypes[GEtype]]
+            else:
+                # --- check map convention
+                if isfren:
+                    # translate FRENETIC numeration to Serpent
+                    index = [self.Map.fren2serp[i]-1 for i in lst]  # -1 for index
+                else:
+                    index = [i-1 for i in lst]  # -1 to match python indexing
+                # --- get coordinates associated to these assemblies
+                index = (list(set(index)))
+                rows, cols = np.unravel_index(index, self.Map.type.shape)
+                newcore = current_config+0
+                # --- load new assembly type
+                newcore[rows, cols] = asstypes[GEtype]
+
+            self.config[float(time)] = newcore
 
 class AssemblyGeometry:
     """
@@ -552,14 +633,15 @@ class AxialConfig:
     """
 
     def __init__(self, cuts=None, splitz=None, labels=None,
-                 NE_dim=3, inpdict=None, assemblynames=None):
+                 NE_dim=3, inpdict=None, assemblynames=None,
+                 colors=None):
         if inpdict is None:
             self._init(cuts, splitz, labels=labels, NE_dim=NE_dim,
-                       assemblynames=assemblynames)
+                       assemblynames=assemblynames, colors=colors)
         else:
             self._from_dict(inpdict)
 
-    def _init(self, cuts, splitz, labels=None, NE_dim=3, assemblynames=None):
+    def _init(self, cuts, splitz, labels=None, NE_dim=3, assemblynames=None, colors=None):
         if isinstance(splitz, list):
             splitz = np.asarray(splitz, dtype=int)
 
@@ -577,7 +659,7 @@ class AxialConfig:
 
         # initialise dict
         attributes = ['regions', 'labels', 'cuts', 'config', 'config_str',
-                      'cutsregions', 'cutslabels', 'cutsweights']
+                      'cutsregions', 'cutslabels', 'cutsweights', 'cutscolors']
         for at in attributes:
             self.__dict__[at] = MyDict()
         if labels is None:
@@ -615,10 +697,11 @@ class AxialConfig:
                     lbl.append(labels[ir])
             self.cuts[asstype] = AxialCuts(up, lo, r, lbl)
             cuts = tuple(zip(r, lbl, lo, up))
-            zr, zl, zw = self.mapFine2Coarse(cuts, self.zcuts)
+            zr, zl, zw, col = self.mapFine2Coarse(cuts, self.zcuts, colors)
             self.cutsregions[asstype] = zr
             self.cutslabels[asstype] = zl
             self.cutsweights[asstype] = zw
+            self.cutscolors[asstype] = col
             if not homog:
                 # check if homogenisation is needed
                 if any(y < 1 for y in zw['M1']):
@@ -708,7 +791,7 @@ class AxialConfig:
         return len(self.regions)
 
     @staticmethod
-    def mapFine2Coarse(cuts, zcuts):
+    def mapFine2Coarse(cuts, zcuts, colors):
         """
         Generate dictionaries with region names, labels and weights for homogenisation.
 
@@ -732,6 +815,7 @@ class AxialConfig:
         NZ = len(zcuts)-1
         cutsregions = {'M1': np.zeros((NZ,), dtype=object)}
         cutslabels = {'M1': np.zeros((NZ,), dtype=object)}
+        cutscolors = {'M1': np.zeros((NZ,), dtype=object)}
         cutsweights = {'M1': np.zeros((NZ,))}
         for iz in range(NZ): # loop over axial partitions
             lo, up = zcuts[iz], zcuts[iz+1]
@@ -743,10 +827,15 @@ class AxialConfig:
                     if idx not in cutsregions.keys():
                         cutsregions[idx] = np.zeros((NZ,), dtype=object)
                         cutslabels[idx] = np.zeros((NZ,), dtype=object)
+                        cutscolors[idx] = np.zeros((NZ,), dtype=object)
                         cutsweights[idx] = np.zeros((NZ,))
 
                     cutsregions[idx][iz] = r1
                     cutslabels[idx][iz] = l1
+                    if l1 not in colors.keys():
+                        raise GeometryError(f"The color for region {l1} is missing from the .json input!")
+                    else:
+                        cutscolors[idx][iz] = colors[l1]
                     dzc = (up-lo)
                     isInCrs = lf >= lo and uf <= up
                     crssCrs = lf < lo or uf > up
@@ -772,6 +861,7 @@ class AxialConfig:
             cutsregions[k] = cutsregions[k].tolist()
             cutslabels[k] = cutslabels[k].tolist()
             cutsweights[k] = cutsweights[k].tolist()
+            cutscolors[k] = cutscolors[k].tolist()
 
         # sanity check on weights
         checkw = np.zeros((NZ, ))
@@ -780,7 +870,7 @@ class AxialConfig:
         if np.any(abs(checkw-1) > 1E-5):
             raise OSError("Weights for homogenisation are not"
                             f" normalised in {m}!")
-        return cutsregions, cutslabels, cutsweights
+        return cutsregions, cutslabels, cutsweights, cutscolors
 
 
 class AxialCuts:
