@@ -607,7 +607,7 @@ def auxNE(core, AUXpathNE):
     AUX_NE_plot = []
     asslabel = core.NE.assemblytypes
 
-    if core.NE.plot["SAcolors"] is not None:
+    if core.NE.plot['radplot'] and core.NE.plot["SAcolors"] is not None:
         colors_dict = {} 
         for idx, name  in core.NE.assemblytypes.items():
             colors_dict[idx] = core.NE.plot["SAcolors"][name]

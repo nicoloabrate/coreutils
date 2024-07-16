@@ -517,8 +517,19 @@ class NEMaterial():
         for my_key in serp_keys:
             if my_key.startswith('infS') or my_key.startswith('infSp'):
                 vals = np.reshape(data.infExp[my_key], (nE, nE), order='F')
+                rsd = np.reshape(data.infUnc[my_key], (nE, nE), order='F')
             else:
                 vals = data.infExp[my_key]
+                rsd = data.infUnc[my_key]
+
+            if rsd.size > 1:
+                max_rsd = rsd.max().max()
+            else:
+                max_rsd = rsd.max()
+
+            if max_rsd*100 > 1:
+                g_max = np.argmax(rsd)
+                logging.warning(f'Serpent PRSD of {my_key} = {max_rsd*100} in group={g_max+1} in {uniName}.')
 
             if 'Kappa' in my_key:
                 selfdic['FissEn'] = vals
@@ -844,7 +855,7 @@ class NEMaterial():
         # check basic reactions existence
         for s in basicdata:
             if s not in datavail:
-                if (s == 'Nsf' and 'Nubar' in datavail) or (s == 'Nubar' and 'Nsf' in datavail):
+                if (s == 'Nsf' and 'Nubar' in datavail) or (s == 'Nubar' and 'Fiss' in datavail and 'Nubar') or (s == 'Fiss' and 'Nubar' in datavail):
                     continue
                 else:
                     raise OSError(f'{s} is missing in {self.UniName} data!')
@@ -852,13 +863,25 @@ class NEMaterial():
         InScatt = np.diag(self.S0)
         sTOT = self.S0.sum(axis=0) if len(self.S0.shape) > 1 else self.S0
         # --- compute fission production cross section
-        if hasattr(self, 'Nubar'):
+        if hasattr(self, 'Nubar') and hasattr(self, 'Fiss'):
             self.Nsf = self.Fiss*self.Nubar
-        else:
-            if max(self.Fiss) > 0:
-                self.Nubar = self.Nsf / self.Fiss
+        elif hasattr(self, 'Nsf') and hasattr(self, 'Nubar'):
+            if max(self.Nubar)>0:
+                self.Fiss = self.Nsf/self.Nubar
             else:
-                self.Nubar = self.Fiss # no fission
+                self.Fiss = self.Nubar
+        elif hasattr(self, 'Nsf') and hasattr(self, 'Fiss'):
+            if max(self.Fiss)>0: 
+                self.Nubar =self.Nsf/self.Fiss
+            else:
+                self.Nubar = self.Fiss
+        else:
+                raise OSError('To compute the fission properties at least two out of the three data "Nsf","Nubar" and "Fiss" are required')
+        #else:
+        #    if max(self.Fiss) > 0:
+        #        self.Nubar = self.Nsf / self.Fiss
+        #    else:
+        #        self.Nubar = self.Fiss # no fission
         # --- compute missing sum reactions
         if 'Capt' in datavail:
             self.Abs = self.Fiss+self.Capt
@@ -935,7 +958,10 @@ class NEMaterial():
 
         if kincons:
             try:
-                self.beta_tot = self.beta.sum()
+                if not hasattr(self,"beta_tot"):
+                    self.beta_tot = self.beta.sum()
+                if not hasattr(self, "lambda_tot"):
+                    self.__dict__["lambda_tot"] = np.mean(self.__dict__["lambda"])
 
                 if isFiss:
                     if len(self.Chid.shape) == 1:
@@ -955,7 +981,7 @@ class NEMaterial():
                         for g in range(0, self.nE):
                             chit = (1-self.beta.sum())*self.Chip[g] + \
                                     np.dot(self.beta, self.Chid[:, g])
-                            if abs(self.Chit[g]-chit) > 1E-4:
+                            if abs(self.Chit[g]-chit) > 1E-3:
                                 raise NEMaterialError()
                     except NEMaterialError:
                         logging.warning(f'Fission spectra or delayed fractions'
@@ -993,6 +1019,10 @@ class NEMaterial():
                 self.Chit = np.zeros((self.nE, ))
                 self.Chip = np.zeros((self.nE, ))
                 self.Chid = np.zeros((self.NPF, self.nE))
+        if not hasattr(self, "Flx"):
+            # FIXME: an improved option can be estimating the flux axial prof. with analytical profiles
+            # e.g. cos(Bz) if self.Fiss != 0 or exp(-z/L)+exp(+z/L) if self.Fiss = 0
+            self.Flx = np.ones((self.nE, ))
 
     def to_json(self, fname=None):
         """Dump object to json file.

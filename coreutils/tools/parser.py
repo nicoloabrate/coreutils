@@ -27,7 +27,7 @@ setToValue = {
                         'fren': True,
                         'axplot': False,
                         'radplot': False,
-                        'SAcolors': False,
+                        'SAcolors': None,
                       },
                 'NE': {
                         'NEdata': None,
@@ -44,8 +44,8 @@ setToValue = {
                         'regionslabel': None,
                         'axplot': False,
                         'radplot': False,
-                        'SAcolors': False,
-                        'AXcolors': False,
+                        'SAcolors': None,
+                        'AXcolors': None,
                         'worksheet': False,
                       },
                 'TH': {
@@ -62,8 +62,8 @@ setToValue = {
                         'BCs': None,
                         'axplot': False,
                         'radplot': False,
-                        'SAcolors_TH': False,
-                        'SAcolors_BC': False,
+                        'SAcolors_TH': None,
+                        'SAcolors_BC': None,
                         'worksheet': False,
                        },
                 "FRENETIC-NML": None

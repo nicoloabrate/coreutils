@@ -73,12 +73,32 @@ class Map:
         self.rotation_angle = rotangle
 
         if rotangle == 0:
-            # sanity check
+            # in case of full-core, extract first sextant and then use the usual algorithm
             N, M = self.inp.shape
+            nnr = 0
+            nnr_zero_top = 0
+            for n in range(N):
+                if sum(self.inp[n, :]) > 0:
+                    nnr += 1
+                else:
+                    if nnr == 0:
+                        nnr_zero_top += 1
+
+            yc = nnr_zero_top + int(np.ceil(nnr/2)) - 1 # -1 for python idx
+            
+            nnc = 0
+            nnc_zero_left = 0
+            while nnc == 0:
+                nnc_zero_left += 1
+                if self.inp[yc, nnc_zero_left] != 0:
+                    nnc = 1
+
+            xc = nnc_zero_left + int(np.ceil((np.count_nonzero(self.inp[yc, :]))/2)) - 1
+
+            # sanity check
             if N != M:
                 raise MapError("Input map should be squared also for hexagonal cores if rotation angle != 60!")
             self.sector = np.zeros((N, M), dtype=int)
-            yc, xc = int(N/2)-1, int(N/2)-1 # -1 for python idx
             # count non-zero assemblies along each row
             nL = []
             nnz = True
@@ -263,7 +283,7 @@ class Map:
         return sermap
 
     def __drawfrenmap(self):
-        """Define the core map  according to FRENETIC code ordering.
+        """Define the core map according to FRENETIC code ordering.
 
         Parameters
         ----------
@@ -280,12 +300,12 @@ class Map:
         if self.rotation_angle != 60 and self.rotation_angle != 0:
             logging.critical("FrenMap method works only for hexagonal core geometry!")
             raise OSError("rotation angle should be 60 or 0 degrees")
-        
+
         nsect = 6  # only six sextants for 60 degree rotation are allowed
 
         nL = np.count_nonzero(self.sector, axis=1)
         self.nonZeroCols = nL[nL != 0]
-        frenmap = self.sector+0  # copy input matrix
+        frenmap = self.sector + 0  # copy input matrix
 
         # number of assemblies
         nass = nsect*(np.count_nonzero(frenmap)-1)+1

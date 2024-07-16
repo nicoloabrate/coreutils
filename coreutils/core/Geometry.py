@@ -209,7 +209,7 @@ class Geometry:
             elif k == "AssemblyDefinition" or k == "AssemblyType": # back-compatibility
                 setattr(self, k, {})
                 for AssType, inp in v.items():
-                    self.AssemblyDefinition[AssType] = AxialCuts(inpdict=inp)
+                    self.__dict__[k][AssType] = AxialCuts(inpdict=inp)
             elif k == "LatticeGeometry":
                 setattr(self, k, {})
                 for AssType, inp in v.items():
@@ -832,10 +832,13 @@ class AxialConfig:
 
                     cutsregions[idx][iz] = r1
                     cutslabels[idx][iz] = l1
-                    if l1 not in colors.keys():
-                        raise GeometryError(f"The color for region {l1} is missing from the .json input!")
+                    if colors is None:
+                        cutscolors[idx][iz] = None
                     else:
-                        cutscolors[idx][iz] = colors[l1]
+                        if l1 not in colors.keys():
+                            raise GeometryError(f"The color for region {l1} is missing from the .json input!")
+                        else:
+                            cutscolors[idx][iz] = colors[l1]
                     dzc = (up-lo)
                     isInCrs = lf >= lo and uf <= up
                     crssCrs = lf < lo or uf > up

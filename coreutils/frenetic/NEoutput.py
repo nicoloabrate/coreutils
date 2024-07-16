@@ -640,7 +640,7 @@ class NEoutput:
                 h5groups = dsetpath.split("/")
                 if len(h5groups) > 2:
                     h5path = "/".join(h5groups[:-1])
-                    dsetpath = h5f[h5path].fields(h5groups[-1])
+                    dsetpath = h5f[h5path][h5groups[-1]] # fields
                 else:
                     h5path = dsetpath
             else:
@@ -1692,29 +1692,28 @@ class NEoutput:
                 #   numbers=False, 
                   **kwargs)
 
-    def whereMaxSpectralRad(self, path, core, plot=True):
+    def whereMaxSpectralRadius(self, plot=True):
 
-        with open(os.path.join(path, 'outputNE.log'), 'r') as f:
-            for l in f:
-                if '@ D3DMATI: MAXVAL(SPECTRAL NORM)' in l:
-                    # parse IK, IG
-                    num = l.split('(IK,IG)= ')[1]
-                    IK, IG = num.split()
-                    IK, IG = int(IK), int(IG)
-                else:
-                    IK, IG = None, None
         nElz = len(self.core.NE.AxialConfig.AxNodes) if self.core.dim != 2 else 1
-        myIK = 0
+        isSym = self.core.FreneticNamelist["PRELIMINARY"]["isSym"]
         nhex = int((self.core.nAss-1)/6*isSym)+1 if isSym else self.core.nAss
-        for iz in range(0, nElz):
-            for ih in range(1, nhex+1):
-                if myIK == IK:
-                    # TODO parse each time config.
-                    hexty = self.core.getassemblytype(ih, config=core.NE.config[0], isfren=True)
-                    hexty = self.core.NE.assemblytypes[hexty]
-                    z = self.core.NE.AxialConfig.AxNodes[iz]
-                    print(f'Max spectral norm in {hexty} SAs at z={z} cm')
-                myIK = myIK+1
+
+        with open(os.path.join(self.NEpath, 'nodal.wrn'), 'r') as f:
+            for l in f:
+                if '@ D3DMati: MAXVAL(SPECTRAL NORM)' in l:
+                    # parse IK, IG
+                    num = l.split('(ih,iz,ig)= ')[1]
+                    ih_max, iz_max, ig_max = num.split()
+                    ih_max, iz_max, ig_max = int(ih_max), int(iz_max), int(ig_max)
+
+                    for iz in range(0, nElz):
+                        for ih in range(1, nhex+1):
+                            if ih == ih_max and iz == iz_max:
+                                # TODO parse each time config.
+                                hexty = self.core.getassemblytype(ih, config=self.core.NE.config[0], isfren=True)
+                                hexty = self.core.NE.assemblytypes[hexty]
+                                z = self.core.NE.AxialConfig.AxNodes[iz]
+                                print(f'Max spectral norm in {hexty} SAs at z={z} cm in group {ig+1}')
 
     def _shift_index(self, gro, pre, t, z, times=None, particles="neutrons"):
         """Convert input parameters to lists of indexes for slicing.

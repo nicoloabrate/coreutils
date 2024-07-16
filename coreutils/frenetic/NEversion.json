@@ -222,7 +222,7 @@
                                                                                 ]
                                                                     },
                                                         "power": ["total", "fission", "neutron_KERMA", "photon_KERMA"],
-                                                        "static": ["reactivity (GPT)", "*-eigenvalue", "*-eigenvalue_adjoint"],
+                                                        "static": ["reactivity (GPT)", "k-eigenvalue", "k-eigenvalue_adjoint", "gamma-eigenvalue", "gamma-eigenvalue_adjoint"],
                                                         "time": {}
                                                           },
                                     "restart": {"TODO": []}
