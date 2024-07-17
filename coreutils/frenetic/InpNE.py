@@ -39,12 +39,12 @@ def writemacro(core, nmix, vel, lambda0, beta0, temps,
     -------
     ``None``
     """
-    macronames = ["DIFFCOEF", "XS_TOT", "XS_SCATT", "XS_FISS", "NUSF", "ESIGF"]
+    macronames = ["DIFFCOEF", "XS_TOT", "XS_SCATT", "XS_FISS", "NUSF", "ESIGF", "KERMA"]
     # FIXME kerma should be separated from photon data and set to zero if not present in the input data
-    macronamesp = ["KERMA", "MUSIGP", "DIFFP", "XS_TOT_P", "XS_SCATT_P", "KERMAP"]
+    macronamesp = ["MUSIGP", "DIFFP", "XS_TOT_P", "XS_SCATT_P", "KERMAP"]
     inpnames = ["filediff", "filesigt", "filesigs", "filesigf", "filenusigf",
-                "fileesigf"]
-    inpnamesp = ["filekerma", "filemusigp", "filediffp", "filesigtp", "filesigsp", "filekermap"]
+                "fileesigf", "filekerma"]
+    inpnamesp = ["filemusigp", "filediffp", "filesigtp", "filesigsp", "filekermap"]
 
     nFrenCuts = len(core.NE.AxialConfig.zcuts)-1 if core.dim != 2 else 1
     (Tf, Tc) = temps
@@ -231,9 +231,9 @@ def writeNEdata(core, verbose=False, txt=False, H5fmt=2):
     """
     # --- define list of output filenames
     outnames = ["DIFFCOEF", "ESIGF", "NUSF", "XS_FISS", "XS_SCATT", "XS_TOT",
-                "CHIT", "XS_REM"]
+                "CHIT", "XS_REM", "KERMA"]
     matkeys = ['Diffcoef', 'Esigf', 'Nsf', 'Fiss', 'S0', 'Tot', 'Chit',
-                'Remxs']
+                'Remxs', 'Kerma']
     if verbose:
         xsverb = ['Capt', 'Nubar', 'Sp0']
         verb_out = ["XS_CAPT", "NU", "XS_PSCATT"]

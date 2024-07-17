@@ -106,7 +106,7 @@ class NE:
         NEfren = NEargs['fren']
         NEassemblylabel = NEargs['assemblylabel']
         NEdata = NEargs['nedata']
-        isPH = True if 'ph' in NEargs.keys() else False
+        isPH = True if 'PH' in NEdata.keys() else False
 
         self.time = [0.]
         # --- AXIAL GEOMETRY, IF ANY
@@ -174,9 +174,11 @@ class NE:
 
         # ------ NE MATERIAL DATA AND ENERGY GRID
         if NEdata is not None:
-            self.get_energy_grid(NEargs)
             self.NEdata = NEdata
-            self.get_material_data(univ, CI, datacheck=datacheck)
+            self.get_energy_grid(NEargs)
+            if isPH:
+                self.get_PH_energy_grid(NEdata["PH"])
+            self.get_material_data(univ, CI, datacheck=datacheck, isPH=isPH)
             # --- check precursors family consistency
             NP = -1
             NPp = -1
@@ -188,21 +190,11 @@ class NE:
                         if NP != mat.NPF:
                             raise OSError(f'Number of neutron precursor families in {k} '
                                         'not consistent with the other regions!')
-                if isPH: # add photon data
-                    PHargs = NEargs['ph']
-                    self.get_PH_energy_grid(PHargs)
-                    #for k, mat in self.PHMaterialData[temp].items():
-                    #    if NPp == -1:
-                    #        NPp = mat.NPF
-                    #    else:
-                    #        if NPp != mat.NPF:
-                    #            raise OSError(f'Number of photon precursor families in {k} '
-                    #                        'not consistent with the other regions!')
 
             self.nPre = NP
             if isPH:
                 self.nPrp = 0 # FIXME TODO!
-                self.nGrp = len(self.PHenergygrid)-1
+                self.nGrp = len(self.energygridPH)-1
                 self.nDhp = 1 # FIXME TODO!
                 logging.info("DHP set to 1!")
             else:
@@ -448,6 +440,7 @@ class NE:
                                                   f"Check {fname} file!")
                             # FIXME
                             self.P1consistent = False
+                            # TODO add photon collapsing
                             data[temp][new_u].collapse(fewgrp, spectrum=spectrum, egridname=egridname)
 
                 nT += 1
@@ -1246,7 +1239,7 @@ class NE:
                     dim = 3
                     self.replaceSA(core, {newtype: assbly}, time, isfren=isfren)
 
-    def get_material_data(self, univ, core, datacheck=True):
+    def get_material_data(self, univ, core, datacheck=True, isPH=False):
         try:
             path = self.NEdata['path']
         except KeyError:
@@ -1287,24 +1280,34 @@ class NE:
             T = temp if self.NEdata["checktempdep"] else None
             # look for all data in Serpent format
             serpres = {}
+            serpdet = {}
             serpuniv = []
             for f in files:
-                sdata = readSerpentRes(path, self.energygrid, T, 
-                                        beginswith=f, egridname=self.egridname)
+                sdata, sdet = readSerpentRes(path, self.energygrid, T, 
+                                            beginswith=f, egridname=self.egridname)
                 if sdata is not None:
                     serpres[f] = sdata
                     for univtup in sdata.universes.values():
                         # access to HomogUniv attribute name
                         serpuniv.append(univtup.name)
 
+                if sdet is not None:
+                    serpdet[f] = sdet
+
+            if isPH:
+                energygridPH = self.energygridPH
+            else:
+                energygridPH = None
+
             for u in univ:
                 if u in serpuniv:
                     tmp[u] = NEMaterial(u, self.energygrid, egridname=self.egridname, 
-                                        serpres=serpres, temp=T, datacheck=datacheck, P1consistent=self.NEdata["P1consistent"])
+                                        serpres=serpres, serpdet=serpdet, temp=T, datacheck=datacheck, 
+                                        P1consistent=self.NEdata["P1consistent"], energygridPH=energygridPH)
                 else: # look for data in json and txt format
-                    tmp[u] = NEMaterial(u, self.energygrid, 
-                                        egridname=self.egridname,
-                                        datapath=path, temp=T, basename=u, datacheck=datacheck, P1consistent=self.NEdata["P1consistent"])
+                    tmp[u] = NEMaterial(u, self.energygrid, egridname=self.egridname,
+                                        datapath=path, basename=u, temp=T, datacheck=datacheck, 
+                                        P1consistent=self.NEdata["P1consistent"], energygridPH=energygridPH)
             # --- HOMOGENISATION (if any)
             if core.dim != 2:
                 if self.AxialConfig.homogenised:
@@ -1340,7 +1343,7 @@ class NE:
         if isinstance(energygrid, (list, np.ndarray, tuple)):
             self.nGro = len(energygrid)-1
             self.egridname = f'{self.nGro}G' if ename is None else ename
-            self.energygrid = energygrid
+            self.energygrid = np.asarray(energygrid)
         elif isinstance(energygrid, (str, float, int)):
             pwd = Path(__file__).parent.parent.parent
             if 'COREutils'.lower() not in str(pwd).lower():
@@ -1365,7 +1368,6 @@ class NE:
             self.energygrid[np.argsort(-self.energygrid)]
 
     def get_PH_energy_grid(self, PHargs):
-        #FIXME FIXME FIXME this should be integrated in the foregoing method
         if 'egridname' in PHargs.keys():
             ename = PHargs['egridname']
         else:
@@ -1378,30 +1380,30 @@ class NE:
 
         if isinstance(energygrid, (list, np.ndarray, tuple)):
             self.nGrp = len(energygrid)-1
-            self.egridname = f'{self.nGrp}G' if ename is None else ename
-            self.PHenergygrid = energygrid
+            self.egridnamePH = f'{self.nGrp}G' if ename is None else ename
+            self.energygridPH = energygrid
         elif isinstance(energygrid, (str, float, int)):
             pwd = Path(__file__).parent.parent.parent
-            if 'coreutils' not in str(pwd):
+            if 'COREutils'.lower() not in str(pwd).lower():
                 raise OSError(f'Check coreutils tree for PHdata: {pwd}')
             else:
                 pwd = pwd.joinpath('PHdata')
                 if isinstance(energygrid, str):
                     fgname = f'{energygrid}.txt'
-                    self.egridname = str(energygrid)
+                    self.egridnamePH = str(energygrid)
                 else:
                     fgname = f'{energygrid}G.txt'
-                    self.egridname = str(energygrid)
+                    self.egridnamePH = str(energygrid)
 
                 egridpath = pwd.joinpath('group_structures', fgname)
-                self.PHenergygrid = np.loadtxt(egridpath)
-                self.nGrp = len(self.PHenergygrid)-1
+                self.energygridPH = np.loadtxt(egridpath)
+                self.nGrp = len(self.energygridPH)-1
         else:
             raise OSError(f'Unknown energygrid \
                             {type(energygrid)}')
 
-        if self.PHenergygrid[0] < self.PHenergygrid[0]:
-            self.PHenergygrid[np.argsort(-self.PHenergygrid)]
+        if self.energygridPH[0] < self.energygridPH[0]:
+            self.energygridPH[np.argsort(-self.energygridPH)]
 
     def get_fissile_types(self, t=0):
         """Return fissile assembly types.
@@ -1425,6 +1427,7 @@ class NE:
                     if self.data[temp][r].isfiss():
                         fissile_types.append(iType)
                         break
+
         return fissile_types
 
     def get_fissile_SA(self, core, t=0):

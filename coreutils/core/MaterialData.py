@@ -24,11 +24,12 @@ rc("text", usetex=usetex)
 scatt_keys = [*list(map(lambda z: "infS"+str(z), range(2))),
             *list(map(lambda z: "infSp"+str(z), range(2)))]
 xsdf_keys = ['infTot', 'infAbs', 'infDiffcoef', 'infTranspxs', 'infCapt',
-            'infRemxs', 'infFiss', 'infNsf']
+            'infRemxs', 'infFiss', 'infNsf', 'infRabsxs']
 ene_keys = ['infNubar', 'infInvv', 'infKappa', 'infInvv',  'infChit',
             'infChip', 'infChid']
 
 serp_keys = [*scatt_keys, *xsdf_keys, *ene_keys, 'infFlx']
+serp_phot_keys = ['KermaPh', 'Rayleigh', 'Compton', 'PProduction', 'Photoelectric', 'nuPh', 'TotPhProd']
 
 sumxs = ['Tot', 'Abs', 'Remxs']
 indepdata = ['Capt', 'Fiss', 'S0', 'Nubar', 'Diffcoef', 'Chid', 'Chip']
@@ -44,7 +45,8 @@ units = {'Chid': '-', 'Chit': '-', 'Chip': '-', 'Tot': 'cm^{-1}',
         'Capt': 'cm^{-1}', 'Abs': 'cm^{-1}', 'Fiss': 'cm^{-1}',
         'NuSf': 'cm^{-1}', 'Remxs': 'cm^{-1}', 'Transpxs': 'cm^{-1}',
         'FissEn': 'MeV', 'S': 'cm^{-1}', 'Nubar': '-', 'Invv': 's/cm',
-        'Difflenght': 'cm', 'Diffcoef': 'cm', 'Flx': 'a.u.'}
+        'Difflenght': 'cm', 'Diffcoef': 'cm', 'Flx': 'a.u.',
+        'Kerma': 'J/cm'}
 
 xslabels = {'Chid': 'delayed fiss. emission spectrum', 'Chit': 'total fiss. emission spectrum',
             'Chip': 'prompt fiss. emission spectrum', 'Tot': 'Total xs',
@@ -52,7 +54,7 @@ xslabels = {'Chid': 'delayed fiss. emission spectrum', 'Chit': 'total fiss. emis
             'NuSf': 'Fiss. production xs', 'Remxs': 'Removal xs', 'Transpxs': 'Transport xs',
             'FissEn': 'Fiss. energy', 'S': 'Scattering xs', 'Nubar': 'neutrons by fission',
             'Invv': 'Inverse velocity', 'Difflenght': 'Diff. length', 'Diffcoef': 'Diff. coeff.',
-            'Flx': 'Flux spectrum'}
+            'Flx': 'Flux spectrum', 'Kerma': 'KERMA coefficient'}
 
 def readSerpentRes(datapath, energygrid, T, beginswith,
                    egridname=False):
@@ -76,6 +78,8 @@ def readSerpentRes(datapath, energygrid, T, beginswith,
     -------
     res: dict
         dict of serpentTools parser object whose keys are the fuel and coolant temperatures.
+    det: dict
+        dict of serpentTools parser object for detectors whose keys are the fuel and coolant temperatures.
 
     Raises
     ------
@@ -111,7 +115,7 @@ def readSerpentRes(datapath, energygrid, T, beginswith,
         raise OSError(f'"serpent" dir does not exist in {datapath}')
     # check for temperatures
     if T is not None:
-        fname = f"{beginswith}_Tf_{Tf:g}_Tc_{Tc:g}"                               
+        fname = f"{beginswith}_Tf_{Tf:g}_Tc_{Tc:g}"
         if Path(path.join(spath, f"Tf_{Tf:g}_Tc_{Tc:g}")).exists():
             spath = path.join(spath, f"Tf_{Tf:g}_Tc_{Tc:g}")
         elif Path(path.join(spath, f"Tc_{Tc:g}_Tf_{Tf:g}")).exists():
@@ -120,17 +124,27 @@ def readSerpentRes(datapath, energygrid, T, beginswith,
         fname = path.join(spath, beginswith)    
     
     if '_res.m' not in str(fname):
-        fname = f'{str(fname)}_res.m'
+        basename = fname
+        fname = f'{str(basename)}_res.m'
+        dname = f'{str(basename)}_det0.m'
     else:
         fname = fname
-        
+        basename = fname.split("_res.m")[0]
+        dname = f'{basename}_det0.m'
+
     fname = path.join(spath, fname)
     if Path(fname).exists():
         res = read(fname)
     else:
         res = None
 
-    return res
+    dname = path.join(spath, dname)
+    if Path(dname).exists():
+        det = read(dname)
+    else:
+        det = None
+
+    return res, det
 
 
 def Homogenise(materials, weights, mixname):
@@ -153,7 +167,7 @@ def Homogenise(materials, weights, mixname):
         Object containing the homogenised material
     """
     collapse_xs = ['Fiss', 'Capt', *list(map(lambda z: "S"+str(z), range(2))),
-                    *list(map(lambda z: "Sp"+str(z), range(2))), 'Invv', 'Transpxs']
+                    *list(map(lambda z: "Sp"+str(z), range(2))), 'Invv', 'Transpxs', 'Kerma']
     collapse_xsf = ['Nubar', 'Chid', 'Chit', 'Chip', 'FissEn']
     inherit = ['NPF', 'nE', 'egridname', 'beta', 'beta_tot', 'energygrid',
                'lambda', 'lambda_tot', 'L', 'P1consistent']
@@ -328,8 +342,8 @@ class NEMaterial():
 
     def __init__(self, uniName=None, energygrid=None, datapath=None,
                  egridname=None, h5file=None, reader='json', serpres=None,
-                 basename=False, temp=False, datacheck=True, init=False, 
-                 P1consistent=False):
+                 serpdet=None, basename=False, temp=False, datacheck=True,
+                 init=False, energygridPH=None, P1consistent=False):
         if h5file:
             if isinstance(h5file, dict):
                 for k, v in h5file.items():
@@ -433,10 +447,13 @@ class NEMaterial():
                         raise OSError(f'{fname} not found!')
             else:
                 self._readserpentres(serpres, uniName, nE, egridname)
-            
+                nEPH = len(energygridPH) - 1
+                self._readserpentdet(serpdet, uniName, nE, nEPH)
+
             self.nE = nE
-            self.egridname = egridname
-            self.energygrid = energygrid
+            # FIXME TODO
+            # self.egridname = egridname
+            # self.energygrid = energygrid
             self.UniName = uniName
             self.P1consistent = P1consistent
 
@@ -539,11 +556,77 @@ class NEMaterial():
         # kinetics parameters
         selfdic['beta'] = res.resdata['fwdAnaBetaZero'][::2]
         selfdic['beta_tot'] = selfdic['beta'][0]
-        selfdic['beta'] = selfdic['beta'][1:]
+        if len(selfdic['beta']) > 1:
+            selfdic['beta'] = selfdic['beta'][1:]
+        else:
+            selfdic['beta'] = np.array([selfdic['beta_tot']])
         # this to avoid confusion with python lambda function
         selfdic['lambda'] = res.resdata['fwdAnaLambda'][::2]
         selfdic['lambda_tot'] = selfdic['lambda'][0]
-        selfdic['lambda'] = selfdic['lambda'][1:]
+        if len(selfdic['lambda']) > 1:
+            selfdic['lambda'] = selfdic['lambda'][1:]
+        else:
+            selfdic['lambda'] = np.array([selfdic['lambda_tot']])
+
+    def _readserpentdet(self, serpdet, uniName, nE, nEPH):
+        """Transform :class:`serpentTools.ResultsReader` object 
+            into :class:``coreutils.NEMaterial`` object.
+
+        Parameters
+        ----------
+        serpdet : dict
+            Dictionary of :class:`serpentTools.DetectorsReader` objects.
+        uniName : str
+            Name of the material.
+        nE: int
+            Number of energy groups.
+        nEPH: int
+            Number of photon energy groups.
+
+        Raises
+        ------
+        OSError
+            If the material indicated by ``UniName`` is not available.
+        OSError
+            If the number of energy groups indicated by ``nE`` is not available.
+        """
+        data = None
+        data_name = f"{uniName}__nkerma"
+
+        for det in serpdet.values():
+            if data_name in det.detectors.keys():
+                det_data = det[data_name]
+                if len(det_data.energy) != nE:
+                    raise OSError(f'{uniName} energy groups in _det do not match with \
+                                    input grid!')
+
+                data = det_data.tallies
+
+        if data is None:
+            logging.warning(f'{uniName} data not available in Serpent files!')
+        else:
+            selfdic = self.__dict__
+
+            selfdic["Kerma"] = data[::-1]
+            rsd = det_data.errors
+
+            if rsd.max()*100 > 1:
+                g_max = np.argmax(rsd)
+                logging.warning(f'Serpent PRSD of kerma = {rsd.max()*100} in group={g_max+1} in {uniName}.')
+
+        # FIXME TODO work in progress
+        if nEPH > 0:
+            for mykey in serp_phot_keys:
+                data_name = f"{uniName}__{mykey}"
+                # loop over elements in this universe
+                # TODO
+                det_data = det[data_name]
+                if len(det_data.energy) != nEPH:
+                    raise OSError(f'{uniName} PH energy groups in _det do not match with \
+                                    input grid!')
+
+                data = det_data.tallies
+
 
     def _readtxt(self, fname, nE):
         """
@@ -877,11 +960,6 @@ class NEMaterial():
                 self.Nubar = self.Fiss
         else:
                 raise OSError('To compute the fission properties at least two out of the three data "Nsf","Nubar" and "Fiss" are required')
-        #else:
-        #    if max(self.Fiss) > 0:
-        #        self.Nubar = self.Nsf / self.Fiss
-        #    else:
-        #        self.Nubar = self.Fiss # no fission
         # --- compute missing sum reactions
         if 'Capt' in datavail:
             self.Abs = self.Fiss+self.Capt
@@ -1019,6 +1097,10 @@ class NEMaterial():
                 self.Chit = np.zeros((self.nE, ))
                 self.Chip = np.zeros((self.nE, ))
                 self.Chid = np.zeros((self.NPF, self.nE))
+
+        if not hasattr(self, "Kerma"):
+            self.Kerma = np.zeros((self.nE, ))
+
         if not hasattr(self, "Flx"):
             # FIXME: an improved option can be estimating the flux axial prof. with analytical profiles
             # e.g. cos(Bz) if self.Fiss != 0 or exp(-z/L)+exp(+z/L) if self.Fiss = 0
@@ -1092,12 +1174,12 @@ class NEMaterial():
         G = len(fewgrp)-1
         # sanity checks
         if G >= H:
-            raise MaterialError(f'Collapsing failed: few-group structure should',
+            raise NEMaterialError(f'Collapsing failed: few-group structure should',
                           ' have less than {H} group')
         if multigrp[0] != fewgrp[0] or multigrp[-1] != fewgrp[-1]:
-            raise MaterialError('Collapsing failed: few-group structure'
-                          'boundaries do not match with multi-group'
-                          'one')
+            raise NEMaterialError('Collapsing failed: few-group structure'
+                                'boundaries do not match with multi-group'
+                                'one')
         # map fewgroup onto multigroup
         few_into_multigrp = np.zeros((G+1,), dtype=int)
         # multigrp_bin = np.zeros((H+1,), dtype=int)
@@ -1105,20 +1187,25 @@ class NEMaterial():
             reldiff = abs(multigrp-g)/g
             idx = np.argmin(reldiff)
             if (reldiff[idx] > 1E-5):
-                raise MaterialError(f'Group boundary n.{ig}, {g} MeV not present in fine grid!')
+                raise NEMaterialError(f'Group boundary n.{ig}, {g} MeV not present in fine grid!')
             else:
                 few_into_multigrp[ig] = idx
                 # multigrp_bin[idx] = 1
 
         collapsed = {}
         collapsed['Flx'] = np.zeros((G, ))
+
+        # manage reduced absorption collapsing
+        if hasattr(self, "Rabsxs"):
+            # collapse the (n,xn) cross section
+            xs_abs_nxn = self.Abs - self.Rabsxs
+            collapsed["Rabsxs"] = np.zeros((G, ))
+
         for g in range(G):
             # select fine groups in g
             G1, G2 = fewgrp[g], fewgrp[g+1]
             iS = few_into_multigrp[g]
             iE = few_into_multigrp[g+1]
-            # iE = np.argwhere(np.logical_and(multigrp[iS:] < G1,
-            #                                 multigrp[iS:] >= G2))[-1][0]+iS
             # compute flux in g
             NC = flx[iS:iE].sum()
             collapsed['Flx'][g] = NC
@@ -1140,10 +1227,6 @@ class NEMaterial():
                         # --- scattering
                         for g2 in range(G):  # arrival group
                             I1, I2 = fewgrp[g2], fewgrp[g2+1]
-                            # iE2 = np.argwhere(np.logical_and
-                            #                   (multigrp[iS2:] < I1,
-                            #                    multigrp[iS2:] >= I2))
-                            # iE2 = iE2[-1][0]+iS2
                             iS2 = few_into_multigrp[g2]
                             iE2 = few_into_multigrp[g2+1]
                             s = v[iS:iE, iS2:iE2].sum(axis=0)
@@ -1175,6 +1258,11 @@ class NEMaterial():
                             collapsed[key][g] = np.divide(fissrate.dot(v[iS:iE]), FRC, where=FRC!=0)
                 else:
                     continue
+
+            # --- reduced absorption
+            xs_abs_nxn_g = np.divide(flx[iS:iE].dot(xs_abs_nxn[iS:iE]), NC, where=NC!=0)
+            collapsed["Rabsxs"][g] = collapsed["Capt"][g] + collapsed["Fiss"][g] - xs_abs_nxn_g
+
             iS = iE
 
         collapsed['Transpxs'] = 1/(3*collapsed['Diffcoef'])
