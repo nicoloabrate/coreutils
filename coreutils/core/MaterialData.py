@@ -447,13 +447,22 @@ class NEMaterial():
                         raise OSError(f'{fname} not found!')
             else:
                 self._readserpentres(serpres, uniName, nE, egridname)
-                nEPH = len(energygridPH) - 1
+                if energygridPH is None:
+                    nEPH = 0
+                else:
+                    nEPH = len(energygridPH) - 1
                 self._readserpentdet(serpdet, uniName, nE, nEPH)
 
             self.nE = nE
             # FIXME TODO
-            # self.egridname = egridname
-            # self.energygrid = energygrid
+            self.egridname = egridname
+            self.energygrid = energygrid
+
+            if energygridPH is not None:
+                self.egridnamePH = egridnamePH
+                self.energygridPH = energygridPH
+                self.nEPH = len(self.energygridPH) - 1
+
             self.UniName = uniName
             self.P1consistent = P1consistent
 
