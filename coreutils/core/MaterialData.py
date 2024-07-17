@@ -38,7 +38,7 @@ kinetics = ['lambda', 'beta']
 alldata = list(set([*sumxs, *indepdata, *basicdata, *kinetics]))
 
 collapse_xs = ['Fiss', 'Capt', *list(map(lambda z: "S"+str(z), range(0, 2))),
-               *list(map(lambda z: "Sp"+str(z), range(0, 2))), 'Invv', 'Diffcoef']
+               *list(map(lambda z: "Sp"+str(z), range(0, 2))), 'Invv', 'Diffcoef', 'Kerma']
 collapse_xsf = ['Nubar', 'Chid', 'Chit', 'Chip', 'FissEn']
 
 units = {'Chid': '-', 'Chit': '-', 'Chip': '-', 'Tot': 'cm^{-1}',
@@ -1269,8 +1269,9 @@ class NEMaterial():
                     continue
 
             # --- reduced absorption
-            xs_abs_nxn_g = np.divide(flx[iS:iE].dot(xs_abs_nxn[iS:iE]), NC, where=NC!=0)
-            collapsed["Rabsxs"][g] = collapsed["Capt"][g] + collapsed["Fiss"][g] - xs_abs_nxn_g
+            if hasattr(self, "Rabsxs"):
+                xs_abs_nxn_g = np.divide(flx[iS:iE].dot(xs_abs_nxn[iS:iE]), NC, where=NC!=0)
+                collapsed["Rabsxs"][g] = collapsed["Capt"][g] + collapsed["Fiss"][g] - xs_abs_nxn_g
 
             iS = iE
 
