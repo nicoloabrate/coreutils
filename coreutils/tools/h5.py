@@ -11,6 +11,7 @@ import h5py
 import numpy
 import logging
 from collections import OrderedDict
+from shutil import rmtree
 from numpy import string_, ndarray, array, asarray
 from numpy import int8, int16, int32, int64, float16, float32, float64, \
                   complex128, zeros, asarray, bytes_, dtype
@@ -24,20 +25,26 @@ _types = (*_scalar_types, *_iter_types, str, bytes_,
             h5py._hl.dataset.Dataset, )
 _str2type = {i.__name__: i for i in _types}
 
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
+
 class read():
     """
     Class that reads a .hdf5/.h5 file and stores it into an object.
 
-    h5name : str
+    h5filepath : pathlib object
         HDF5 file name that is parsed.
     """
-    def __init__(self, h5name, metadata=True):
+    def __init__(self, h5filepath, metadata=True):
         """
         Read .hdf5/.h5 formatted files and store in object.
 
         Parameters
         ----------
-        h5name : string
+        h5filepath : string
             File where data are stored.
         metadata : bool, optional
             bool to choose if metadata are parsed or ignored, by default
@@ -48,8 +55,7 @@ class read():
         ``None``
         """
         # open hdf5 file
-        h5name = _checkname(h5name)
-        fh5 = h5py.File(h5name, "r")
+        fh5 = h5py.File(h5filepath, "r")
 
         # TODO: add selective reading (maybe specifying group paths)
 
@@ -98,7 +104,7 @@ class read():
                 self.__dict__[f'{gro}_metadata'] = attrs
 
         fh5.close()
-        self.h5name = h5name
+        self.h5filepath = h5filepath
 
     def _h52py(item, pytype=None, keytype=None):
         """
@@ -251,7 +257,7 @@ class read():
 
 class write():
 
-    def __init__(self, obj, groupname, h5name, attributes=None, chunks=True,
+    def __init__(self, obj, groupname, h5filepath, attributes=None, chunks=True,
                  compression=True, overwrite=True, skip=None):
         """
         Write object in .h5 format.
@@ -262,8 +268,8 @@ class write():
             class object to be saved in HDF5.
         groupname : str or iterable
             Group name(s).
-        h5name : string
-            File where data are stored.
+        h5filepath : pathlib object
+            Path to output HDF5 file.
         attributes : dict
             Dictionary attributes that can be assigned for further description
             (default is ``None``).
@@ -279,8 +285,11 @@ class write():
         ``None``
         """
         # --- open hdf5 file
-        h5name = _checkname(h5name)
-        self.fh5 = _wopen(h5name, overwrite=overwrite)
+        if h5filepath.exists():
+            rmtree(h5filepath)
+            logging.warning(f'Overwriting file {corefname}')
+
+        self.fh5 = h5py.File(h5filepath, "a")
 
         # --- convert data and group name to iterable
         if isinstance(obj, list) is False:
@@ -306,10 +315,6 @@ class write():
         else:
             attributes = [None]
 
-        if self.fh5 == -1:
-            logging.info("HDF5 file not overwritten.")
-
-        logging.info("Writing object in HDF5 file...")
         # --- loop over objects, attributes and group names
         for i, (ob, at, grp) in enumerate(zip(obj, attributes, groupname)):
             if isinstance(ob, (list, tuple, ndarray)):
@@ -379,7 +384,7 @@ class write():
             if skip is not None:
                 for i, s in enumerate(skip):
                     if str(key) == s:
-                        logging.info(f"Skipping key {s}")
+                        logging.info(f"Skipping key '{s}' in HDF dumping.")
                         doskip = True
                     elif str(key) in s:
                         tmp = s.split('.')[1:][0]
@@ -503,71 +508,3 @@ class write():
         fh5[group][str(key)].attrs['pytype'] = str(type(item))
         fh5[group][str(key)].attrs['keytype'] = str(type(key))
 
-
-def _checkname(fname):
-    """
-    Check file extension.
-
-    Parameters
-    ----------
-    fname : str
-        Input filename (optional extension).
-
-    Raises
-    ------
-    OSError
-        -File extension is wrong. Only HDF5 can be parsed
-
-    Returns
-    -------
-    ``None``.
-    """
-    lst = fname.split(".")
-
-    if len(lst) == 1:
-        msg = ("File extension is missing. Only HDF5 can be read/written!")
-        raise OSError(msg)
-
-    else:
-
-        if lst[-1] != "hdf5" and lst[-1] != "h5":
-            msg = ("File extension is wrong. Only HDF5 can be read/written!")
-            raise OSError(msg)
-
-    return fname
-
-
-def _wopen(h5name, overwrite=False):
-    """
-    Open the hdf5 file "h5name.hdf5" in "append" mode.
-
-    Parameters
-    ----------
-    h5name : str
-        File name
-
-    Returns
-    -------
-    fh5 : object
-        h5py object
-
-    """
-    if os.path.isfile(h5name):
-        if overwrite:
-            ans = 'yes'
-        else:
-            ans = 'append'
-
-    else:  # if file do not exist, it creates it
-        ans = "create"
-
-    if ans in ['yes', 'y', 'Yes', 'Y', 'YES']:
-        os.remove(h5name)
-        # open file in write mode
-        fh5 = h5py.File(h5name, "a")
-        return fh5
-
-    else:
-        # create file in append mode
-        fh5 = h5py.File(h5name, "a")
-        return fh5

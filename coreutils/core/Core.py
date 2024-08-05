@@ -10,7 +10,7 @@ from copy import deepcopy as cp
 # from collections import OrderedDict
 from pathlib import Path
 
-from coreutils.tools.utils import MyDict
+from coreutils.tools.utils import MyDict, write_log_header, write_coreutils_msg
 from coreutils.tools.parser import parse
 from coreutils.core.Map import Map
 from coreutils.core.NE import NE
@@ -19,6 +19,12 @@ from coreutils.core.UnfoldCore import UnfoldCore
 from coreutils.core.MaterialData import *
 from coreutils.core.Geometry import Geometry, AxialConfig, AxialCuts
 from coreutils.frenetic.InpGen import inpgen, fillFreneticNamelist
+
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
 
 
 class Core:
@@ -81,8 +87,11 @@ class Core:
 
     def __init__(self, inpjson):
         if '.h5' in inpjson:
+            write_coreutils_msg(f"Build core object from an existing .h5 file, {inpjson}")
             self._from_h5(inpjson)
         elif ".json" in inpjson:
+            write_log_header()
+            write_coreutils_msg(f"Build core object from a .json input file, {inpjson}")
             self.from_json(inpjson)
         else:
             raise OSError("Input must .h5 or .json file!")
@@ -147,18 +156,12 @@ class Core:
                 flag = GEargs['rotation'] != 60 and GEargs['rotation'] != 0
 
             if flag:
-                raise OSError('Hexagonal core geometry requires one sextant, so' +
+                raise OSError('Hexagonal core geometry requires one sextant, so'
                               ' "rotation" must be 60 degree!')
 
-        if not isNE:
-            if dim == 1:
-                raise OSError('Cannot generate core object without NE namelist!')
-            else:
-                logging.info('NE input not available, writing TH input only!')
-        if not isTH and dim != 1:
-            logging.info('TH input not available, writing NE input only!')
-
         # --- ASSIGN COMMON INPUT DATA
+        write_coreutils_msg(f"Assign general core data")
+
         TfTc = []
         CIargs['tf_tc'].sort()
         self.TfTc = [(float(Ttup[0]), float(Ttup[1])) for Ttup in CIargs['tf_tc']]
@@ -195,6 +198,7 @@ class Core:
             raise OSError('nSnap in .json file must be list with len >1, float or int!')
 
         # --- GE object
+        write_coreutils_msg(f"Build core geometry")
         self.Geometry = Geometry(GEargs=GEargs)
         # backward compatibility
         if dim != 1:
@@ -205,17 +209,23 @@ class Core:
             self.nAss = 1
 
         # --- NE OBJECT
+        write_coreutils_msg(f"Build neutronics object (NE)")
         if isNE:
             # --- assign map
             assemblynames = NEargs['assemblynames']
             nAssTypes = 1 if dim == 1 else len(assemblynames)
             assemblynames = MyDict(dict(zip(assemblynames.keys(), np.arange(1, nAssTypes+1))))
-            datacheck = 1
             tmp = UnfoldCore(NEargs['filename'], NEargs['rotation'], assemblynames)
             NEcore = tmp.coremap
-            self.NE = NE(NEargs, self, datacheck=datacheck)
+            self.NE = NE(NEargs, self)
+        else:
+            if dim == 1:
+                raise OSError('Cannot generate core object without NE namelist!')
+            else:
+                logging.info('NE input not available, writing TH input only!')
 
         # --- TH OBJECT
+        write_coreutils_msg(f"Build thermal-hydraulics object (TH)")
         if isTH and dim != 1:
             # --- assign TH map
             assemblynames = THargs['htnames']
@@ -223,15 +233,19 @@ class Core:
             assemblynames = MyDict(dict(zip(assemblynames, np.arange(1, nAssTypes+1))))
             THcore = UnfoldCore(THargs['htdata']['filename'], THargs['rotation'], assemblynames).coremap
             self.TH = TH(THargs, self)
+        else:
+            logging.info('TH input not available, writing NE input only!')
 
         # --- NE and TH CONSISTENCY CHECK
+        write_coreutils_msg(f"Perform NE-TH sanity check")
         if isNE and isTH:
 
             # dimensions consistency check
             BCcore = self.TH.BCconfig[0]
             if BCcore.shape != NEcore.shape:
-                raise OSError("NE and TH core dimensions mismatch:" +
-                              f"{BCcore.shape} vs. {NEcore.shape}")
+                msg = (f"NE and TH core dimensions mismatch: {BCcore.shape} vs. {NEcore.shape}")
+                logging.critical(msg)
+                raise OSError(msg)
 
             # non-zero elements location consistency check
             tmp1 = cp(BCcore)
@@ -245,15 +259,18 @@ class Core:
                 tmp3[tmp3 != 0] = 1
 
             if (tmp1 != tmp2).all():
-                raise OSError("Assembly positions in BC and NE mismatch. " +
-                              "Check core input file!")
+                msg = "Assembly positions in BC and NE mismatch. Check core input file!"
+                logging.critical(msg)
+                raise OSError(msg)
 
             if (tmp1 != tmp3).all():
-                raise OSError("Assembly positions in BC and TH mismatch. " +
-                              "Check core input file!")
+                msg = "Assembly positions in BC and TH mismatch. Check core input file!"
+                logging.critical(msg)
+                raise OSError(msg)
 
         # --- complete FRENETIC namelist and make input, if any
         if FRNargs is not None:
+            write_coreutils_msg("Parse FRENETIC input settings")
             # update missing args with ones coming from Core object
             updatedFreneticNamelist = fillFreneticNamelist(self)
             self.FreneticNamelist = updatedFreneticNamelist
@@ -261,6 +278,7 @@ class Core:
             if "makeinput" in CIargs.keys():
                 if CIargs["makeinput"]:
                     # make FRENETIC input
+                    write_coreutils_msg("Prepare FRENETIC input case")
                     inpgen(self, inpjson)
 
     def _from_h5(self, h5name):

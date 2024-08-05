@@ -9,11 +9,19 @@ import coreutils.tools.h5 as myh5
 from copy import deepcopy as cp
 # from collections import OrderedDict
 from pathlib import Path
-from coreutils.tools.utils import MyDict
+from coreutils.tools.utils import MyDict, write_coreutils_msg
 from coreutils.core.UnfoldCore import UnfoldCore
 from coreutils.core.MaterialData import HTHexData
 from coreutils.core.Geometry import Geometry, AxialConfig, AxialCuts
 from coreutils.input.TH_input import *
+
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
+
+
 class TH:
     """
     Define TH core configurations.
@@ -96,6 +104,8 @@ class TH:
         self.BCconfig[0] = BCcore
         self.HTconfig[0] = HTcore
         # --- set initial value of Boundary Conditions
+        write_coreutils_msg(f"Set TH boundary conditions")
+
         self.BCs = {
                     "massflowrate": {"time": [0.], "values" : np.zeros((1, CI.nAss))},
                     "temperature": {"time": [0.], "values" : np.zeros((1, CI.nAss))},
@@ -110,6 +120,8 @@ class TH:
                 self.BCs[field]["values"][0, n-1] = THargs[field][idx]
 
         # --- build time-dependent TH and BC core configuration
+        write_coreutils_msg(f"Define time-dependent TH configurations and boundary conditions")
+
         configurations = {'HTconfig': HTconfig, 'BCconfig': BCconfig}
         for name, config in configurations.items():
             configtype = name.split('config')[0]
@@ -151,6 +163,7 @@ class TH:
                 self.nVolRef = THargs["nelref"]
                 self.zref = [z/100 for z in THargs["zref"]]
                 self.zref.sort()
+
             nVolRef = self.nVolRef if hasattr(self, "nVolRef") else None
             zref = self.zref if hasattr(self, "zref") else [0, 0]
             zcoord, axstep = meshTH1d(min(self.zmesh), max(self.zmesh), self.nVol, 

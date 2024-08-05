@@ -4,6 +4,7 @@ import logging
 from collections import OrderedDict
 from coreutils.tools.utils import uppcasedict, lowcasedict
 from coreutils.frenetic.frenetic_namelists import FreneticNamelist
+from pathlib import Path
 
 CImandatory = ('Tf_Tc',)
 GEmandatory = ('dim', 'shape', 'lattice_pitch') # 'lattice_pitch' only if shape!='1D', 'cuts' only in '1D'
@@ -69,6 +70,13 @@ setToValue = {
                 "FRENETIC-NML": None
               }
 
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
+
+
 def parse(inp):
     """
     Parse .json input file.
@@ -95,6 +103,7 @@ def parse(inp):
         List of TH module arguments.
     """
     if isinstance(inp, str) is False:
+        logging.critical("Input .json input file missing or not found!")
         raise ParserError("Input file path is missing!")
 
     # parse .json file
@@ -252,6 +261,11 @@ def __parseGE(inp):
         if k.lower() not in GEargs.keys():
             GEargs[k.lower()] = v
 
+    if not os.path.isabs(GEargs['filename']):
+        p = str(Path(GEargs['filename']).resolve())
+        logging.warning(f'relative path {GEargs["filename"]} converted into absolute path {str(p)}')
+        GEargs['filename'] = p
+
     return GEargs
 
 
@@ -315,8 +329,9 @@ def __parseNE(inp, dim):
     # sanity check
     if dim != 1:
         if not os.path.isabs(NEargs['filename']):
-            raise ParserError(f'NE input: filename must be an absolute path to file!')
-
+            p = str(Path(NEargs['filename']).resolve())
+            logging.warning(f'relative path {NEargs["filename"]} converted into absolute path {str(p)}')
+            NEargs['filename'] = p
     return NEargs
 
 
@@ -390,6 +405,16 @@ def __parseTH(inp):
                             raise ParserError(f"{k} is missing in HTdata['data'] dict in input .json!")
             else:
                 raise ParserError("'data' key in HTdata dict in input .json should be associated with a dict!")
+
+        if not os.path.isabs(htdata['filename']):
+            p = str(Path(htdata['filename']).resolve())
+            logging.warning(f'relative path {htdata["filename"]} converted into absolute path {str(p)}')
+            htdata['filename'] = p
+
+        if not os.path.isabs(THargs['bcfile']):
+            p = str(Path(THargs['bcfile']).resolve())
+            logging.warning(f'relative path {THargs["bcfile"]} converted into absolute path {str(p)}')
+            THargs['bcfile'] = p
 
     return THargs
 

@@ -23,6 +23,12 @@ rcParams['text.usetex']= True if sh.which('latex') else False
 pwd = Path(__file__).parent
 inp_json_map = pwd.joinpath("THversion.json")
 
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
+
 class THoutput:
     """
     Class to read TH profiles computed by FRENETIC.

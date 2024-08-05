@@ -22,6 +22,11 @@ rcParams['text.usetex']= True if sh.which('latex') else False
 
 pwd = Path(__file__).parent
 inp_json_map = pwd.joinpath("NEversion.json")
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
 
 class NEoutput:
     """
@@ -1713,7 +1718,7 @@ class NEoutput:
                                 hexty = self.core.getassemblytype(ih, config=self.core.NE.config[0], isfren=True)
                                 hexty = self.core.NE.assemblytypes[hexty]
                                 z = self.core.NE.AxialConfig.AxNodes[iz]
-                                print(f'Max spectral norm in {hexty} SAs at z={z} cm in group {ig+1}')
+                                print(f'Max spectral norm in {hexty} SAs at z={z} cm in group {ig_max+1}')
 
     def _shift_index(self, gro, pre, t, z, times=None, particles="neutrons"):
         """Convert input parameters to lists of indexes for slicing.

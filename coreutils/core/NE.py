@@ -10,7 +10,7 @@ from copy import deepcopy as cp
 # from collections import OrderedDict
 from pathlib import Path
 from collections import OrderedDict
-from coreutils.tools.utils import MyDict
+from coreutils.tools.utils import MyDict, write_coreutils_msg
 from coreutils.core.UnfoldCore import UnfoldCore
 from coreutils.core.MaterialData import *
 from coreutils.core.Geometry import Geometry, AxialConfig, AxialCuts
@@ -50,6 +50,12 @@ mycols1.extend(xkcd)
 # else:
 #     asscol = dict(zip(reg, mycols1))
 
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
+
 class NE:
     """
     Define NE core configurations.
@@ -80,14 +86,14 @@ class NE:
         Replace assemblies with user-defined new or existing type.
     """
 
-    def __init__(self, NEargs=None, CI=None, inpdict=None, datacheck=True):
+    def __init__(self, NEargs=None, CI=None, inpdict=None):
 
         if inpdict is None:
-            self._init(NEargs, CI, datacheck=datacheck)
+            self._init(NEargs, CI)
         else:
             self.from_dict(inpdict)
 
-    def _init(self, NEargs, CI, datacheck=True):
+    def _init(self, NEargs, CI):
         # parse inp args
         dim = CI.dim
         self.NEtoGE = NEargs['assemblynames']
@@ -106,11 +112,16 @@ class NE:
         NEfren = NEargs['fren']
         NEassemblylabel = NEargs['assemblylabel']
         NEdata = NEargs['nedata']
+        if "fixdata" in NEdata.keys():
+            self.fixdata = NEdata["fixdata"]
+        else:
+            self.fixdata = 1
         isPH = True if 'PH' in NEdata.keys() else False
 
         self.time = [0.]
         # --- AXIAL GEOMETRY, IF ANY
         if cuts is not None and dim != 2:
+            write_coreutils_msg(f"Build core axial geometry for NE object")
             # initial axial configuration
             self.AxialConfig = AxialConfig(cuts, NEargs['splitz'], labels=NEargs['labels'], 
                                            NE_dim=dim, assemblynames=assemblynames, colors=self.plot['AXcolors'])
@@ -140,6 +151,7 @@ class NE:
         self.config = {}
         assemblynames = MyDict(dict(zip(assemblynames, np.arange(1, nAssTypes+1))))
         # --- define core Map, assembly names and types
+        write_coreutils_msg(f"Build core radial geometry for NE object")
         if dim != 1:
             tmp = UnfoldCore(NEargs['filename'], NEargs['rotation'], assemblynames)
             NEcore = tmp.coremap
@@ -178,7 +190,10 @@ class NE:
             self.get_energy_grid(NEargs)
             if isPH:
                 self.get_PH_energy_grid(NEdata["PH"])
-            self.get_material_data(univ, CI, datacheck=datacheck, isPH=isPH)
+            
+            write_coreutils_msg(f"Read and assign multi-group constants to NE object")
+            self.get_material_data(univ, CI, fixdata=self.fixdata, isPH=isPH)
+
             # --- check precursors family consistency
             NP = -1
             NPp = -1
@@ -203,6 +218,7 @@ class NE:
                 self.nDhp = 0
 
         # ------ BUILD NE TIME_DEP. CONFIGURATIONS
+        write_coreutils_msg(f"Define NE time-dependent configurations")
         # do replacements if needed at time=0 s
         if NEargs["replacesa"] is not None:
             self.replaceSA(CI, NEargs["replacesa"], 0, isfren=NEfren)
@@ -257,6 +273,7 @@ class NE:
                         tmp.pop(u)
 
         # ------ PERFORM COLLAPSING, IF ANY
+        write_coreutils_msg(f"Carry out multi-group collapsing")
         if NEdata is not None and 'collapse' in NEargs:
             # check path to data
             if 'path' in NEargs['collapse']:
@@ -441,7 +458,7 @@ class NE:
                             # FIXME
                             self.P1consistent = False
                             # TODO add photon collapsing
-                            data[temp][new_u].collapse(fewgrp, spectrum=spectrum, egridname=egridname)
+                            data[temp][new_u].collapse(fewgrp, spectrum=spectrum, egridname=egridname, fixdata=self.fixdata)
 
                 nT += 1
             # update regions
@@ -760,7 +777,7 @@ class NE:
                         self.AxialConfig.cutscolors[newtype] = zc
                         # TODO add new data if replaced region is missing
                         # if withreg not in self.data[core.TfTc[0]].keys():
-                        #     self.get_material_data([withreg], core, datacheck=datacheck)
+                        #     self.get_material_data([withreg], core, fixdata=fixdata)
 
                 else: 
                     # --- define cutsregions of new SA type
@@ -837,7 +854,7 @@ class NE:
                                 for name in names:
                                     mat4hom[name] = self.data[temp][name]
                                 weight4hom = dict(zip(names, w))
-                                tmp[u0] = Homogenise(mat4hom, weight4hom, u0)
+                                tmp[u0] = Homogenise(mat4hom, weight4hom, u0, self.fixdata)
 
                 # --- update info in object
                 if newtype not in self.assemblytypes.keys():
@@ -869,34 +886,39 @@ class NE:
 
         # --- dict sanity check
         if 'keff' not in prt.keys():
-            raise OSError(f'Mandatory key `keff` missing in ''critical'' card for t={time} s')
+            raise NEError(f'Mandatory key `keff` missing in ''critical'' card for t={time} s')
         else:
             keff = prt['keff']
-        # get fissile regions
+
         SA_fiss = self.get_fissile_types(t=now)
+        # impose criticality in each FA type
         for SA in SA_fiss:
             if hasattr(self, "AxialConfig"):
                 SA_reg = self.AxialConfig.config[SA]
             else: # 2D object
                 SA_reg = [SA]
 
+            # TODO FIXME this should be more systematic and robust
+            fiss_reg = []
             for ireg in SA_reg:
                 reg = self.regions[ireg]
-                # if "crit" in reg:
-                #     # replace
-                #     self.replaceSA(core, {reg: f"{reg}-crit"}, now)
-                # else:
-                # perturb Nubar
                 # check that reg is fissile
                 for temp in core.TfTc:
+                    perturb_list = []
                     if reg in self.data[temp].keys():
                         if self.data[temp][reg].isfiss():
-                            pert = {"region": reg, "howmuch": [1/keff-1],
-                                    "what": "Nubar", "which": "all"}
-                            self.perturb(core, pert, time=time, action="crit")
+                            fiss_reg.append(reg)
                     break # just to perform the check
 
-    def perturb(self, core, prt, time=0, sanitycheck=True, isfren=True,
+            perturb_list = []
+            lst_app = perturb_list.append
+            for reg in fiss_reg:
+                lst_app({"region": reg, "howmuch": [1/keff-1],
+                        "what": "Nubar", "which": "all"})
+
+            self.perturb(core, perturb_list, time=time, action="crit")
+
+    def perturb(self, core, prt, time=0, fixdata=True, isfren=True,
                 action='pert'):
         """
 
@@ -1047,7 +1069,7 @@ class NE:
                 # --- perturb data and assign it
                 for temp in core.TfTc:
                     self.data[temp][prtreg] = cp(self.data[temp][oldreg])
-                    self.data[temp][prtreg].perturb(perturbation, howmuch, depgro, sanitycheck=sanitycheck)
+                    self.data[temp][prtreg].perturb(perturbation, howmuch, depgro, fixdata=fixdata)
                 # --- add new assemblies
                 self.regions[self.nReg+1] = prtreg
                 if action != "crit":
@@ -1225,7 +1247,7 @@ class NE:
                                 for name in names:
                                     mat4hom[name] = self.data[temp][name]
                                 weight4hom = dict(zip(names, w))
-                                tmp[u0] = Homogenise(mat4hom, weight4hom, u0)
+                                tmp[u0] = Homogenise(mat4hom, weight4hom, u0, self.fixdata)
 
                     # --- update info in object
                     if newtype not in self.assemblytypes.keys():
@@ -1239,7 +1261,7 @@ class NE:
                     dim = 3
                     self.replaceSA(core, {newtype: assbly}, time, isfren=isfren)
 
-    def get_material_data(self, univ, core, datacheck=True, isPH=False):
+    def get_material_data(self, univ, core, fixdata=True, isPH=False):
         try:
             path = self.NEdata['path']
         except KeyError:
@@ -1302,11 +1324,11 @@ class NE:
             for u in univ:
                 if u in serpuniv:
                     tmp[u] = NEMaterial(u, self.energygrid, egridname=self.egridname, 
-                                        serpres=serpres, serpdet=serpdet, temp=T, datacheck=datacheck, 
+                                        serpres=serpres, serpdet=serpdet, temp=T, fixdata=fixdata, 
                                         P1consistent=self.NEdata["P1consistent"], energygridPH=energygridPH)
                 else: # look for data in json and txt format
                     tmp[u] = NEMaterial(u, self.energygrid, egridname=self.egridname,
-                                        datapath=path, basename=u, temp=T, datacheck=datacheck, 
+                                        datapath=path, basename=u, temp=T, fixdata=fixdata, 
                                         P1consistent=self.NEdata["P1consistent"], energygridPH=energygridPH)
             # --- HOMOGENISATION (if any)
             if core.dim != 2:
@@ -1327,7 +1349,7 @@ class NE:
                             for name in names:
                                 mat4hom[name] = self.data[temp][name]
                             weight4hom = dict(zip(names, w))
-                            tmp[u0] = Homogenise(mat4hom, weight4hom, u0)
+                            tmp[u0] = Homogenise(mat4hom, weight4hom, u0, self.fixdata)
 
     def get_energy_grid(self, NEargs):
         if 'egridname' in NEargs.keys():

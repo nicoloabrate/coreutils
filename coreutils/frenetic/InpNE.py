@@ -12,7 +12,13 @@ from coreutils.frenetic.frenetic_namelists import FreneticNamelist, FreneticName
 # TODO: implementare gestione proprieta' fotoni
 # TODO: quale coppia di temperature considero per i param. cinetici?
 
-def writemacro(core, nmix, vel, lambda0, beta0, temps,
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
+
+def writemacro(core, path, nmix, vel, lambda0, beta0, temps,
                unimap, H5fmt=2):
     """
     Write the input file "macro.nml" for the NE module of FRENETIC.
@@ -21,6 +27,8 @@ def writemacro(core, nmix, vel, lambda0, beta0, temps,
     ----------
     core : obj
         Core object created with Core class
+    path : pathlib object
+        Path to file
     nmix : int
         Number of different regions after homogenisation in the core
     vel : ndarray
@@ -55,7 +63,13 @@ def writemacro(core, nmix, vel, lambda0, beta0, temps,
         nPre = core.NE.NEdata["nPrec"]
     # -- write macro.nml file
     asstypeN = 0
-    f = io.open('macro.nml', 'w', newline='\n')
+    inpname = "macro.nml"
+    filepath = path.joinpath(inpname)
+    if filepath.exists():
+        rmtree(filepath)
+        logging.warning(f'Overwriting file {inpname}')
+
+    f = io.open(filepath, 'w', newline='\n')
     f.write('&MACROXS0\n')
     f.write(f'nMat = {nmix} \n')
     f.write(f'nGro = {core.NE.nGro} \n')
@@ -208,7 +222,7 @@ def writemacro(core, nmix, vel, lambda0, beta0, temps,
     f.write('/\n')
 
 
-def writeNEdata(core, verbose=False, txt=False, H5fmt=2):
+def writeNEdata(core, path, verbose=False, txt=False, H5fmt=2):
     """
     Generate FRENETIC NE module input (HDF5 file or many txt).
 
@@ -216,6 +230,8 @@ def writeNEdata(core, verbose=False, txt=False, H5fmt=2):
     ----------
     core : obj
         Core object created with Core class
+    path : pathlib object
+        Path to file
     verbose : bool, optional
         Set to ``True`` in order to print also capture, nubar and scattering
         production data, by default ``False``
@@ -231,9 +247,9 @@ def writeNEdata(core, verbose=False, txt=False, H5fmt=2):
     """
     # --- define list of output filenames
     outnames = ["DIFFCOEF", "ESIGF", "NUSF", "XS_FISS", "XS_SCATT", "XS_TOT",
-                "CHIT", "XS_REM", "KERMA"]
+                "CHIT", "KERMA"]
     matkeys = ['Diffcoef', 'Esigf', 'Nsf', 'Fiss', 'S0', 'Tot', 'Chit',
-                'Remxs', 'Kerma']
+               'Kerma']
     if verbose:
         xsverb = ['Capt', 'Nubar', 'Sp0']
         verb_out = ["XS_CAPT", "NU", "XS_PSCATT"]
@@ -246,8 +262,15 @@ def writeNEdata(core, verbose=False, txt=False, H5fmt=2):
     datakeys = dict(zip(matkeys, outnames))
 
     # -- create or overwrite hdf5 file (repro script)
-    h5name = "NE_data.h5"
-    fh5 = __wopen(h5name)
+    inpname = "NE_data.h5"
+    h5filepath = path.joinpath(inpname)
+    # --- open hdf5 file
+    if h5filepath.exists():
+        rmtree(h5filepath)
+        logging.warning(f'Overwriting file {inpname}')
+
+    fh5 = h5.File(h5filepath, "a")
+
     # --- write general info (Tf, Tc, energy grid)
     fh5.create_dataset('TfTc', data=core.TfTc)
     fh5.create_dataset('Tf', data=core.Tf)
@@ -428,11 +451,12 @@ def writeNEdata(core, verbose=False, txt=False, H5fmt=2):
         for asstype in core.NE.regions.values():
             DFLtoZ[asstype] = DFLmax[asstype]/np.sqrt(core.Geometry.AssemblyGeometry.area)
 
-    with open('DiffLengthToNodeSize.json', 'w') as outfile:
+    L_to_dz_file = path.parent.joinpath('auxiliary', 'NE', 'DiffLength_to_NodeSize.json')
+    with open(L_to_dz_file, 'w') as outfile:
         json.dump({"DFLtoZ": DFLtoZ}, outfile, indent=2)
 
 
-def writeConfig(core):
+def writeConfig(core, path):
     """
     Write config.inp file.
 
@@ -440,13 +464,21 @@ def writeConfig(core):
     ----------
     core : obj
         Core object created with Core class.
+    path: pathlib object
+        Path to file
 
     Returns
     -------
     ``None``
 
     """
-    f1 = io.open('config.inp', 'w', newline='\n')
+    inpname = 'config.inp'
+    filepath = path.joinpath(inpname)
+    if filepath.exists():
+        rmtree(filepath)
+        logging.warning(f'Overwriting file {inpname}')
+
+    f1 = io.open(filepath, 'w', newline='\n')
     NAssTypes = len(core.NE.assemblytypes)
     isSym = core.FreneticNamelist['PRELIMINARY']['isSym']
     nAss = int(core.nAss/6*isSym+1) if isSym else core.nAss
@@ -551,7 +583,7 @@ def writeConfig(core):
             writer.handles = None
 
 
-def makeNEinput(core, H5fmt=2):
+def makeNEinput(core, path, H5fmt=2):
     """
     Make input.inp file.
 
@@ -559,6 +591,8 @@ def makeNEinput(core, H5fmt=2):
     ----------
     core : obj
         Core object created with Core class
+    path: pathlib object
+        Path to file
     template : str, optional
         File path where the template file is located, by default ``None``.
         In this case, the default template is used
@@ -591,7 +625,13 @@ def makeNEinput(core, H5fmt=2):
     nRun = 2 if core.trans else 1
 
     frnnml = FreneticNamelist()
-    f = io.open("input.inp", 'w', newline='\n')
+    inpname = "input.inp"
+    filepath = path.joinpath(inpname)
+    if filepath.exists():
+        rmtree(filepath)
+        logging.warning(f'Overwriting file {inpname}')
+
+    f = io.open(filepath, 'w', newline='\n')
 
     for namelist in frnnml.files["NEinput.inp"]:
         f.write(f"&{namelist}\n")

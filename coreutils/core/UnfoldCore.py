@@ -2,6 +2,12 @@ import numpy as np
 from copy import deepcopy
 import logging
 
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
+
 
 class UnfoldCore:
     """

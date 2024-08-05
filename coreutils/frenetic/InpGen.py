@@ -1,13 +1,11 @@
 import io
 import os
-import git
-import socket
 import logging
-import pathlib
+from pathlib import Path
+import tempfile
 import numpy as np
 from os.path import join
-from datetime import datetime
-from shutil import move, copyfile, SameFileError
+from shutil import move, copyfile, SameFileError, rmtree
 from coreutils.tools.utils import fortranformatter as ff
 from coreutils.tools.properties import *
 from coreutils.tools.plot import RadialMap, AxialGeomPlot, SlabPlot
@@ -27,10 +25,11 @@ np.seterr(invalid='ignore')
 logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
 figfmt = ['png']
 
-repopath = pathlib.Path(__file__).resolve().parents[2]
-repo = git.Repo(repopath)
-sha = repo.head.object.hexsha  # commit id
-
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
 
 def fillFreneticNamelist(core):
     """Fill FRENETIC kw dict with missing data, ensuring their consistency.
@@ -371,21 +370,29 @@ def inpgen(core, json):
     -------
     ``None``
     """
-    # generate case directory-tree
-    cwd = os.getcwd()
-    iwd = os.path.dirname(json)
+    logging.info(f"{''.join(['-']*50)}")
+    logging.info("Preparing FRENETIC input case")
+    logging.info(f"{''.join(['-']*50)}")
 
+    iwd = Path(os.path.dirname(json))
+
+    # generate case directory-tree
     if '.json' not in json:
         json = f"{json}.json"
-    
-    json = pathlib.Path(json)
+
+    json = Path(json)
     casename = json.stem
 
-    if not os.path.exists(iwd):
-        raise OSError(f'{iwd} path does not exist!')
+    # create temporary directory
+    tempfile.tempdir = Path(iwd)
+    tmp_dirname = tempfile.mkdtemp(prefix=f"tmp_",suffix=f"_{casename}")
+    logging.info(f"Storing FRENETIC input in temporary directory -> {tmp_dirname}")
 
-    casepath = mkdir(join(iwd, casename))
-    AUXpath = mkdir("auxiliary", casepath)
+    if not iwd.exists():
+        raise OSError(f'{str(iwd)} path does not exist!')
+
+    tmp_casepath = mkdir(iwd.joinpath(tmp_dirname))
+    AUXpath = mkdir("auxiliary", tmp_casepath)
 
     AUXpathGE = mkdir("geometry", AUXpath)
 
@@ -397,36 +404,20 @@ def inpgen(core, json):
 
     # --- echoing json to root directory
     try:
-        copyfile(f'{json}', join(AUXpath, f'{json.name}_echo'))
+        copyfile(f'{json}', join(AUXpath, f'{json.name}'))
     except SameFileError:
-        os.remove(join(casepath, f'{json.name}_echo'))
-        logging.warning(f'Overwriting file {json.name}_echo')
-        copyfile(f'{json}', join(AUXpath, f'{json.name}_echo'))
+        os.remove(join(tmp_casepath, f'{json.name}'))
+        logging.warning(f'Overwriting file {json.name}')
+        copyfile(f'{json}', join(AUXpath, f'{json.name}'))
 
-    # --- add GIT info
-    print_coreutils_info()
-    move('coreutils_info.txt', join(AUXpath, 'coreutils_info.txt'))
-
-    # --- save core object to root directory
+    # --- save core object
     corefname = 'core.h5'
     grp_name = 'core'
-    myh5.write(core, grp_name, corefname, chunks=True, compression=True,
-               overwrite=True, skip=['NE.data'])
-    try:
-        copyfile(f'{corefname}', join(casepath, f'{corefname}'))
-    except SameFileError:
-        os.remove(join(casepath, f'{corefname}'))
-        logging.warning(f'Overwriting file {corefname}')
-        copyfile(f'{corefname}', join(casepath, f'{corefname}'))
+    myh5.write(core, grp_name, tmp_casepath.joinpath(f'{corefname}'), chunks=True, 
+               compression=True, overwrite=True, skip=['NE.data'])
 
     # --- COMMON INPUT (common_input.inp)
-    makecommoninput(core)
-    try:
-        move('common_input.inp', join(casepath, 'common_input.inp'))
-    except SameFileError:
-        os.remove(join(casepath, 'common_input.inp'))
-        logging.warning(f'Overwriting file {str(json)}')
-        move('common_input.inp', join(casepath, 'common_input.inp'))
+    makecommoninput(core, tmp_casepath)
 
     # --- NE input (config.inp, macro.nml)
     if hasattr(core, "NE"):
@@ -436,29 +427,19 @@ def inpgen(core, json):
         NE = False
 
     if NE:
-        NEpath = mkdir("NE", casepath)
+        NEpath = mkdir("NE", tmp_casepath)
         # define nmix (number of different regions)
         nmix = len(core.NE.regions.keys())
         # --- write config.inp
-        writeConfig(core)
+        writeConfig(core, NEpath)
         # --- write input.inp
-        makeNEinput(core)
+        makeNEinput(core, NEpath)
 
-        # move NE files
-        NEfiles = ['input.inp', 'config.inp']
-        for f in NEfiles:
-            try:
-                move(f, join(NEpath, f))
-            except SameFileError:
-                os.remove(join(NEpath, f))
-                logging.warning('Overwriting file {}'.format(f))
-                move(f, join(NEpath, f))
     else:
-        logging.warn('No NE object, so input.inp and config.inp not written!')
+        logging.warn('No NE object: input.inp and config.inp not written!')
 
     # write NE data
     if hasattr(core.NE, 'data') or isNE1D:
-        NEpath = mkdir("NE", casepath)
         # -- prepare data
         # get temperatures couples
         temp = core.TfTc
@@ -482,22 +463,11 @@ def inpgen(core, json):
         else:
             raise OSError("Cannot deal with 'nPrec'!=1!")
         # --- write macro.nml
-        writemacro(core, nmix, vel, lambda0, beta0,
+        writemacro(core, NEpath, nmix, vel, lambda0, beta0,
                    (Tf, Tc), core.NE.regions, H5fmt=2)
 
         # -- write NE_data.h5
-        writeNEdata(core, verbose=False, H5fmt=2, txt=0)
-        # move NE files
-        NEfiles = ['macro.nml', 'NE_data.h5']
-        for f in NEfiles:
-            try:
-                move(f, join(NEpath, f))
-            except SameFileError:
-                os.remove(join(NEpath, f))
-                logging.warning('Overwriting file {}'.format(f))
-                move(f, join(NEpath, f))
-
-        move('DiffLengthToNodeSize.json', join(AUXpathNE, 'DiffLengthToNodeSize.json'))
+        writeNEdata(core, NEpath, verbose=False, H5fmt=2, txt=0)
 
     else:
         logging.warn('macro.nml and NE_data.h5 not written!')
@@ -506,33 +476,33 @@ def inpgen(core, json):
 
     # make TH input (HA_*_*.txt)
     if TH:
-        THpath = mkdir("TH", casepath)
-        THdatapath = mkdir("data", THpath)
-        writeHTdata(core)
-        # move TH data files
-        pwd = os.getcwd()
-        for f in os.listdir(pwd):
-            if f.startswith("HA"):
-                move(f, join(THdatapath, f))
-
+        THpath = mkdir("TH", tmp_casepath)
+        HTdatapath = mkdir("data", THpath)
+        writeHTdata(core, HTdatapath)
         # make BC input (mdot.txt, temp.txt, pressout.txt, filecool.txt)
-        THpath = mkdir("TH", casepath)
+        THpath = mkdir("TH", tmp_casepath)
         # write BC .txt data
-        writeBCdata(core)
+        writeBCdata(core, THpath)
         # write input.inp
-        makeTHinput(core)
-        # move TH files
-        THfiles = ['mdot.inp', 'pressout.inp', 'tempinl.inp', 'input.inp']
-        [move(f, join(THpath, f)) for f in THfiles]
+        makeTHinput(core, THpath)
     else:
         pass
-        # logging.warn('No TH configuration, so HA_xx_xx.inp not written and other data not created!')
 
     auxGE(core, AUXpathGE)
     if NE:
         auxNE(core, AUXpathNE)
     if TH:
         auxTH(core, AUXpathTH)
+
+    move('coreutils.log', join(AUXpath, 'coreutils.log'))
+
+    new_case_path = iwd.joinpath(casename)
+    if new_case_path.exists():
+        rmtree(new_case_path)
+        logging.warning(f'Overwriting {str(new_case_path)}')
+
+    move(tmp_casepath, new_case_path)
+
 
 def auxGE(core, AUXpathGE):
     """Generate GE auxiliary files.
@@ -565,28 +535,19 @@ def auxGE(core, AUXpathGE):
         if core.dim != 1:
             for fmt in figfmt:
                 # assembly numbers
-                figname = f'GE-rad-map.{fmt}'
-                AUX_GE_plot.append(figname)
+                figname = AUXpathGE.joinpath(f'GE-rad-map.{fmt}')
+                filepath = AUXpathGE.joinpath(figname)
                 RadialMap(core, label=True, fren=True, whichconf="Geometry", 
                             legend=True, asstype=True, colors_dict=colors_dict,
-                            figname=figname)
+                            figname=filepath)
 
         # radial configurations
-        figname = f'GE-rad-conf.{fmt}'
-        AUX_GE_plot.append(figname)
+        figname = AUXpathGE.joinpath(f'GE-rad-config.{fmt}')
+        filepath = AUXpathGE.joinpath(figname)
         RadialMap(core, time=0, label=True, fren=True, 
                     whichconf="Geometry", dictname=asslabel,
                     legend=True, asstype=True, colors_dict=colors_dict,
-                            figname=figname)
-    # move files in directory
-    for f in AUX_GE_plot:
-        try:
-            move(f, join(AUXpathGE, f))
-        except SameFileError:
-            os.remove(join(AUXpathGE, f))
-            logging.warning('Overwriting file {}'.format(f))
-            move(f, join(AUXpathGE, f))
-
+                            figname=filepath)
 
 def auxNE(core, AUXpathNE):
     """Generate NE auxiliary files.
@@ -595,7 +556,7 @@ def auxNE(core, AUXpathNE):
     ----------
     core : :class:`coreutils.core.Core`
         Core object created with Core class.
-    AUXpathNE : str
+    AUXpathNE : pathlib object
         Path to auxiliary NE directory.
     """
     # plot configurations
@@ -620,18 +581,18 @@ def auxNE(core, AUXpathNE):
             for fmt in figfmt:
                 # assembly numbers
                 figname = f'NE-rad-map.{fmt}'
-                AUX_NE_plot.append(figname)
+                filepath = AUXpathNE.joinpath(figname)
                 RadialMap(core, label=True, fren=True, whichconf="NE", 
                             legend=True, asstype=True, colors_dict=colors_dict,
-                            figname=figname)
+                            figname=filepath)
                 # radial configurations
                 for itime, t in enumerate(core.NE.time):
-                    figname = f'NE-rad-conf{itime}-t{1E3*t:g}_ms.{fmt}'
-                    AUX_NE_plot.append(figname)
+                    figname = f'NE-rad-config{itime}-t{1E3*t:g}_ms.{fmt}'
+                    filepath = AUXpathNE.joinpath(figname)
                     RadialMap(core, time=t, label=True, fren=True, 
                                 whichconf="NE", dictname=asslabel,
                                 colors_dict=colors_dict, legend=True, asstype=True, 
-                                figname=figname)
+                                figname=filepath)
                 # --- user-defined custom figures
                 if "plot" in core.NE.__dict__.keys():
                     if isinstance(core.NE.plot['radplot'], list):
@@ -639,8 +600,7 @@ def auxNE(core, AUXpathNE):
                             labeldict = None
                             asstype = True
                             figname = f'NE-rad-custom{iconf}.{fmt}'
-                            AUX_NE_plot.append(figname)
-
+                            filepath = AUXpathNE.joinpath(figname)
                             if "sext" in conf:
                                 whichSA = core.Map.getSAsextant(conf["sext"])
                             elif "whichSA" in conf:
@@ -662,8 +622,8 @@ def auxNE(core, AUXpathNE):
                                     asstype = False
 
                             RadialMap(core, time=radtime, label=True, fren=True, 
-                                        whichconf="NE", dictname=labeldict, which=whichSA,
-                                        legend=True, colors_dict=colors_dict, asstype=asstype, figname=figname)
+                                    whichconf="NE", dictname=labeldict, which=whichSA,
+                                    legend=True, colors_dict=colors_dict, asstype=asstype, figname=filepath)
 
     # --- plot core axial configurations
     if core.NE.plot['axplot']:
@@ -686,9 +646,9 @@ def auxNE(core, AUXpathNE):
         for fmt in figfmt:
             for itime, t in enumerate(core.NE.time):
                 if core.dim == 1:
-                    figname = f'NE-slab-conf{itime}-t{1E3*t:g}_ms.{fmt}'
-                    AUX_NE_plot.append(figname)
-                    SlabPlot(core, time=t, figname=figname, )
+                    figname = f'NE-slab-config{itime}-t{1E3*t:g}_ms.{fmt}'
+                    filepath = AUXpathNE.joinpath(figname)
+                    SlabPlot(core, time=t, figname=filepath)
                     plt.close()
                 elif core.dim == 3:
                     # --- default plot
@@ -703,71 +663,54 @@ def auxNE(core, AUXpathNE):
                             allassbly.append(min(a))
                     allassbly.sort()
 
-                    figname = f'NE-ax-alltypes-conf{itime}-t{1E3*t:g}_ms.{fmt}'
-                    AUX_NE_plot.append(figname)
+                    figname = f'NE-ax-alltypes-config{itime}-t{1E3*t:g}_ms.{fmt}'
+                    filepath = AUXpathNE.joinpath(figname)
                     AxialGeomPlot(core, allassbly, time=t, fren=True, zcuts=True,
-                                figname=figname, legend=True, floating=True)
+                                figname=filepath, legend=True, floating=True)
                     plt.close()
 
                     # plot all assemblies at t with FRENETIC axial nodes over the reference axial geometry
-                    figname = f'NE-ax-alltypes-splitz-conf{itime}-t{1E3*t:g}_ms.{fmt}'
+                    figname = f'NE-ax-alltypes-splitz-config{itime}-t{1E3*t:g}_ms.{fmt}'
+                    filepath = AUXpathNE.joinpath(figname)
                     AUX_NE_plot.append(figname)
                     AxialGeomPlot(core, allassbly, time=t, fren=True, zcuts=True,
-                                    assembly_name=True,
-                                    splitz=True, figname=figname, legend=True, floating=True)
+                                assembly_name=True, splitz=True, figname=filepath,
+                                legend=True, floating=True)
                     plt.close()
 
                     # plot all assemblies at t with FRENETIC axial nodes over the homogenised axial geometry
                     if core.NE.AxialConfig.homogenised:
-                        figname = f'NE-ax-alltypes-splitz-homog-conf{itime}-t{1E3*t:g}_ms.{fmt}'
-                        AUX_NE_plot.append(figname)
+                        figname = f'NE-ax-alltypes-splitz-homog-config{itime}-t{1E3*t:g}_ms.{fmt}'
+                        filepath = AUXpathNE.joinpath(figname)
                         AxialGeomPlot(core, allassbly, time=t, fren=True, zcuts=True,
                                       assembly_name=True, showhomog=True,
-                                      splitz=True, figname=figname, legend=True, floating=True)
+                                      splitz=True, figname=filepath, legend=True, floating=True)
                         plt.close()
 
                     # plot y=0 SAs
-                    figname = f'NE-ax-x0-conf{itime}-t{1E3*t:g}_ms.{fmt}'
-                    AUX_NE_plot.append(figname)
+                    figname = f'NE-ax-x0-config{itime}-t{1E3*t:g}_ms.{fmt}'
+                    filepath = AUXpathNE.joinpath(figname)
                     AxialGeomPlot(core, x0, time=t, fren=True, zcuts=True,
-                                figname=figname, legend=True)
+                                figname=filepath, legend=True)
                     plt.close()
                     # # plot x=0 SAs
-                    # figname = f'NE-ax-y0-conf{itime}-t{1E3*t:g}_ms.{fmt}'
-                    # AUX_NE_plot.append(figname)
+                    # figname = f'NE-ax-y0-config{itime}-t{1E3*t:g}_ms.{fmt}'
+                    # filepath = AUXpathNE.joinpath(figname)
                     # AxialGeomPlot(core, y0, time=t, fren=True, zcuts=True,
-                    #             figname=figname, legend=True, floating=True)
+                    #             figname=filepath, legend=True, floating=True)
                     # plt.close()
                     # # plot along 1st sextant
-                    # figname = f'NE-ax-sextI-conf{itime}-t{1E3*t:g}_ms.{fmt}'
-                    # AUX_NE_plot.append(figname)
+                    # figname = f'NE-ax-sextI-config{itime}-t{1E3*t:g}_ms.{fmt}'
+                    # filepath = AUXpathNE.joinpath(figname)
                     # AxialGeomPlot(core, sextI, time=t, fren=True, zcuts=True,
-                    #             figname=figname, legend=True, floating=True)
+                    #             figname=filepath, legend=True, floating=True)
                     # plt.close()
                     # custom plot
                     if whichSA is not None:
-                        figname = f'NE-ax-conf{itime}-t{1E3*t:g}_ms.{fmt}'
-                        AUX_NE_plot.append(figname)
+                        figname = f'NE-ax-config{itime}-t{1E3*t:g}_ms.{fmt}'
+                        filepath = AUXpathNE.joinpath(figname)
                         AxialGeomPlot(core, SAs, time=t, fren=True, zcuts=True,
-                                    figname=figname, legend=True)
-
-    if core.NE.worksheet:
-        f = 'configurationsNE.xlsx'
-        try:
-            move(f, join(AUXpathNE, f))
-        except SameFileError:
-            os.remove(join(AUXpathNE, f))
-            logging.warning('Overwriting file {}'.format(f))
-            move(f, join(AUXpathNE, f))
-
-    # move files in directory
-    for f in AUX_NE_plot:
-        try:
-            move(f, join(AUXpathNE, f))
-        except SameFileError:
-            os.remove(join(AUXpathNE, f))
-            logging.warning('Overwriting file {}'.format(f))
-            move(f, join(AUXpathNE, f))
+                                    figname=filepath, legend=True)
 
 
 def auxTH(core, AUXpathTH):
@@ -795,16 +738,16 @@ def auxTH(core, AUXpathTH):
                     asslabel = core.TH.__dict__[f"{conftype}assemblytypes"]
                     # assembly numbers
                     figname = f'{conftype}-rad-map.{fmt}'
-                    AUX_TH_plot.append(figname)
+                    filepath = AUXpathTH.joinpath(figname)
                     RadialMap(core, label=True, fren=True, whichconf=conftype, 
-                                legend=True, asstype=True, figname=figname)
+                                legend=True, asstype=True, figname=filepath)
                     # radial configurations
                     for itime, t in enumerate(core.TH.__dict__[f"{conftype}time"]):
-                        figname = f'{conftype}-rad-conf{itime}-t{1E3*t:g}_ms.{fmt}'
-                        AUX_TH_plot.append(figname)
+                        figname = f'{conftype}-rad-config{itime}-t{1E3*t:g}_ms.{fmt}'
+                        filepath = AUXpathTH.joinpath(figname)
                         RadialMap(core, time=t, label=True, fren=True, 
                                 whichconf=conftype, dictname=asslabel,
-                                legend=True, asstype=True, figname=figname)
+                                legend=True, asstype=True, figname=filepath)
 
 
     # move files in directory
@@ -817,7 +760,7 @@ def auxTH(core, AUXpathTH):
             move(f, join(AUXpathTH, f))
 
 
-def makecommoninput(core):
+def makecommoninput(core, path):
     """
     Make common_input.inp file.
 
@@ -831,7 +774,13 @@ def makecommoninput(core):
     ``None``
     """
     frnnml = FreneticNamelist()
-    f = io.open('common_input.inp', 'w', newline='\n')
+    filepath = Path(path).joinpath('common_input.inp')
+
+    if filepath.exists():
+        os.remove(str(filepath))
+        logging.warning(f'Overwriting file {str(filepath)}')
+
+    f = io.open(filepath, 'w', newline='\n')
     isSym = core.FreneticNamelist["PRELIMINARY"]['isSym']
     N = int(core.nAss/6*isSym+1) if isSym else core.nAss
     for namelist in frnnml.files["common_input.inp"]:
@@ -882,33 +831,4 @@ def mkdir(dirname, indirs=None):
 
     os.makedirs((path), exist_ok=True)
 
-    return path
-
-
-def print_coreutils_info():
-    """Print information for reproducibility.
-
-    Parameters
-    ----------
-    ``None``
-
-    Returns
-    -------
-    ``None``
-    """
-    # datetime object containing current date and time
-    now = datetime.now()
-    mmddyyhh = now.strftime("%B %d, %Y %H:%M:%S")
-    with open("coreutils_info.txt", "w") as f:
-        f.write(f"FRENETIC input generated on with `coreutils`: \n")
-        f.write(f"# -------------------------- \n")
-        f.write(f"HOSTNAME: {socket.gethostname()} \n")
-        try:
-            f.write(f"USERNAME: {os.getlogin()} \n")
-        except OSError:
-            f.write(f"USERNAME: unknown \n")
-        f.write(f"GIT_REPO_URL: {repo.remotes.origin.url} \n")
-        f.write(f"GIT_COMMIT_ID: {sha} \n")
-        f.write(f"GIT_BRANCH: {repo.active_branch} \n")
-        f.write(f"DDYYMMHH: {mmddyyhh} \n")
-        f.write(f"# -------------------------- \n")
+    return Path(path)

@@ -1,10 +1,11 @@
 import io
 import numpy as np
+from shutil import rmtree
 from coreutils.tools.utils import fortranformatter as ff
 from coreutils.frenetic.frenetic_namelists import FreneticNamelist, FreneticNamelistError
 
 
-def writeBCdata(core):
+def writeBCdata(core, path):
     """
     Generate TH input data related to cooling zones.
 
@@ -12,6 +13,8 @@ def writeBCdata(core):
     ----------
     core : :class:`coreutils.core.Core`
         Core object created with Core class.
+    path: pathlib object
+        Path to file
 
     Returns
     -------
@@ -21,11 +24,19 @@ def writeBCdata(core):
                    'tempinl.inp': 'temperature', 
                    'pressout.inp': 'pressure',
                    }
-    for inp in input_files.keys():
-        what = input_files[inp]
+    for inpname in input_files.keys():
+        what = input_files[inpname]
         # generate input .inp
         n_time = len(core.TH.BCs[what]["time"])
-        f = io.open(inp, 'w', newline='\n')
+        
+        filepath = path.joinpath(inpname)
+        if filepath.exists():
+            rmtree(filepath)
+            logging.warning(f'Overwriting file {inpname}')
+
+        f = io.open(filepath, 'w', newline='\n')
+
+
         f.write(f"{n_time}, \n")
         isSym = core.FreneticNamelist['PRELIMINARY']['isSym']
         N = int(core.nAss/6*isSym+1) if isSym else core.nAss
@@ -38,7 +49,7 @@ def writeBCdata(core):
             f.write(f'{ff(data)} \n')
 
 
-def makeTHinput(core):
+def makeTHinput(core, path):
     """
     Make input.inp file.
 
@@ -46,13 +57,21 @@ def makeTHinput(core):
     ----------
     core : :class:`coreutils.core.Core`
         Core object.
+    path: pathlib object
+        Path to file
 
     Returns
     -------
     ``None``
     """
     frnnml = FreneticNamelist()
-    f = io.open("input.inp", 'w', newline='\n')
+    inpname = "input.inp"
+    filepath = path.joinpath(inpname)
+    if filepath.exists():
+        rmtree(filepath)
+        logging.warning(f'Overwriting file {inpname}')
+
+    f = io.open(filepath, 'w', newline='\n')
     for namelist in frnnml.files["THinput.inp"]:
         f.write(f"&{namelist}\n")
         for key, val in core.FreneticNamelist[namelist].items():
@@ -69,7 +88,7 @@ def makeTHinput(core):
         f.write("/\n")
 
 
-def writeHTdata(core):
+def writeHTdata(core, path):
     """
     Generate TH input data.
 
@@ -77,6 +96,8 @@ def writeHTdata(core):
     ----------
     core : :class:`coreutils.core.Core`
         Core object created with Core class.
+    path: pathlib object
+        Path to file
 
     Returns
     -------
@@ -91,7 +112,14 @@ def writeHTdata(core):
     for nType in core.TH.HTassemblytypes.keys():
         for nt, t in enumerate(core.TH.HTtime):
             # open new file
-            f = io.open(f'HA_{nType:02d}_{nt+1:02d}.inp', 'w', newline='\n')
+            inpname = f'HA_{nType:02d}_{nt+1:02d}.inp'
+            filepath = path.joinpath(inpname)
+            if filepath.exists():
+                rmtree(filepath)
+                logging.warning(f'Overwriting file {inpname}')
+
+            f = io.open(filepath, 'w', newline='\n')
+
             for namelist in frnnml.files["THdatainput.inp"]:
                 f.write(f"&{namelist}\n")
                 for key, val in core.FreneticNamelist[f"HAType{nType}"][namelist].items():

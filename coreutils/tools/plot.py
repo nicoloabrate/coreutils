@@ -37,6 +37,12 @@ mycols1 = ["#19647e", "#28afb0", "#ee964b", # generated with Coloor
 xkcd = list(colors.XKCD_COLORS.keys())  
 mycols1.extend(xkcd)
 
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
+
 
 def AxialGeomPlot(core, which, time=0, label=False, assembly_name=False,
                   figname=None, fren=False, asstype=False,
@@ -132,7 +138,21 @@ def AxialGeomPlot(core, which, time=0, label=False, assembly_name=False,
             for l in assbly.labels:
                 if l not in reg:
                     regapp(l)
+
     nReg = len(reg)
+
+    # TODO FIXME these lines should be in NE
+    if core.NE.plot["AXcolors"] is None:
+        core.NE.plot["AXcolors"] = dict(zip(reg, mycols1))
+        # assign colors to each assembly axial configuration
+        for NEty, ty_dict in core.NE.AxialConfig.cutsregions.items():
+            core.NE.AxialConfig.cutscolors[NEty] = {}
+            for n, reg_lst in ty_dict.items():
+                core.NE.AxialConfig.cutscolors[NEty][n] = [0]*len(reg_lst)
+                for i, regcol in enumerate(reg_lst):
+                    if regcol != 0:
+                        col = core.NE.plot["AXcolors"][regcol]
+                        core.NE.AxialConfig.cutscolors[NEty][n][i] = col
 
     # open figure
     idx = 0
