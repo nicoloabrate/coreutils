@@ -210,7 +210,7 @@ class THoutput:
         except OSError as err:
             if 'Unable to open file' in str(err):
                 if not os.path.exists(datapath):
-                    raise THOutputError(f"No output in directory {self.NEpath}")
+                    raise THOutputError(f"No output in directory {self.THpath}")
                 else:
                     print()
                     raise THOutputError(f"{str(err)}\n{h5path} is probably corrupted!")
@@ -423,7 +423,7 @@ class THoutput:
                     break
 
         if dsetpath is None:
-            raise THOutputError(f"{what} not available in NEoutput v{self.version}")
+            raise THOutputError(f"{what} not available in THoutput v{self.version}")
         else:
             if "distributions/" in dsetpath:
                 read_distr = True
@@ -492,7 +492,7 @@ class THoutput:
         #             raise THOutputError(f'Cannot provide data in "inlet_outlet" or "peak" groups. \
         #                                 No `core.h5` file in {self.casepath}')
         #         # "t" refers to slicing
-        #         nTimeConfig = len(self.core.NE.time)
+        #         nTimeConfig = len(self.core.TH.time)
         #         # "times" refers to all time instants
         #         if nTimeConfig == 1:
         #             times = None
@@ -518,7 +518,7 @@ class THoutput:
         if dset != "time":
             # parse specified time, assembly, axial node, group, prec. fam.
             if dsetpath not in h5f:
-                raise THOutputError(f"{dsetpath} not present in HDF5 output NE file!")
+                raise THOutputError(f"{dsetpath} not present in HDF5 output TH file!")
             else:
                 profile = np.asarray(h5f[dsetpath])
 
@@ -551,7 +551,11 @@ class THoutput:
             else:
                 
                     description = h5f[dsetpath].attrs["description"][0].decode()
-                    uom = h5f[dsetpath].attrs["unit of measure"][0].decode()
+                    try:
+                        uom = h5f[dsetpath].attrs["unit of measure"][0].decode()
+                    except KeyError: # patch for FRENETIC output typo
+                        uom = h5f[dsetpath].attrs["unit of meaSrfe"][0].decode()
+
         # --- close H5 file
         h5f.close()
 
@@ -569,53 +573,27 @@ class THoutput:
             else:
                 return profile
 
-    def plot1D(self, which, t=None, ax=None, abscissas=None, z=None, 
-               hex=None, leglabels=None, figname=None, xlabel=None,
-               xlims=None, ylims=None, ylabel=None, autolabel=True,
-               style='sty1D.mplstyle', legend=True, **kwargs):
-        """Plot time/axial profile of integral parame. or distribution in hex.
+    def tplot1D(self, what, hex=None, z=None, ax=None,
+               abscissas=None, leglabels=None, 
+               figname=None, xlabel=None, label=None,
+               xlims=None, ylims=None, ylabel=None, geometry=None,
+               style='sty1D.mplstyle',
+               legend=True, **kwargs):
+        """
+        Plot integral param. or distribution against time.
 
         Parameters
         ----------
-        which: str
-            Name of the variable to be parsed
-        t: float or iterable, optional
-            Time instant(s), by default ``None``.
-        ax : `matplotlib.axes.Axes`, optional
-            Ax on which to plot the data, by default `None`. If not provided,
-            a new figure is created.
-        abscissas : list, optional
-            User-defined coordinates for the x-axis, by default ``None``
-        z: float or iterable, optional
-            Axial coordinate(s), by default ``None``.
-        hex: integer or iterable, optional
-            Number of assembly, by default ``None``.
-        leglabels : list, optional
-            List of strings for the legend entries, by default ``None``
-        figname : string, optional
-            Name of the figure to be saved, including its format, by default ``None``
-        xlabel : str, optional
-            Label for the x-axis, by default ``None``
-        xlims : list, optional
-            Limits on the x-axis, by default ``None``
-        ylims : list, optional
-            Limits on the y-axis, by default ``None``
-        ylabel : str, optional
-           Label for the y-axis, by default ``None``
-        autolabel: str, optional
-            Flag to generate automatically the legend
-            label, by default ``True``
-        style : str, optional
-            Path of the `matplotlib` style, by default ``sty1D.mplstyle``
-        legend : bool, optional
-            Option to print the legend, by default ``True``
+        what : string
+            Profile name according to FRENETIC namelist.
+        zt : ndarray, optional
+            Axial or time grid, by default None.
+        figname : TYPE, optional
+            Name assigned to the figure for saving, by default None.
 
-        Raises
-        ------
-        THOutputError
-            If the ``tools`` path in the ``coreutils`` directory is not found.
-        THOutputError
-            _description_
+        Returns
+        -------
+        None.
         """
         if style == 'sty1D.mplstyle':
             pwd = Path(__file__).parent.parent
@@ -626,125 +604,110 @@ class THoutput:
                 raise THOutputError(f"{toolspath} not found!")
         else:
             if not Path(style).exists():
-                logging.warning(f'{style} style sheet not found! \
-                    Switching to default...')
+                logging.info(f'{style} style sheet not found! \
+                                Switching to default...')
             else:
                 sty1D = style
 
-        # check if which is an alias
-        label = which
-        for key, alias_list in self.aliases.items():
-            if which in alias_list:
-                which = key
+        # TODO add aliases
+        # label = what
+        # if what in self.MapVersion["alias"].keys():
+        #     what = self.MapVersion["alias"][what]
 
-        # select unit of measure corresponding to profile
-        plotvstime = True if t is None else False
-        if t:
-            t = None
+        if isinstance(hex, int):
+            hex = [hex]
 
-        if which in self.distributions:
-            isdistr = True
-            uom = self.distributions_measure[which]
-            dims = ["ntim", "nelz", "nhex"]
-        else:  # integral data
-            isdistr = False
-            notfound = True
-            dims = ["ntim", "nhex"]
-            for k in self.maximum:
-                if which == k:
-                    dictkey = k
-                    notfound = False
-                    group = "maximum"
-                    uom = self.maximum_measure[which]
-                    break
-
-            for k in self.inout:
-                if which == k:
-                    dictkey = k
-                    notfound = False
-                    group = "inlet_outlet"
-                    uom = self.inout_measure[which]
-                    break
-
+        if isinstance(z, int):
+            z = [z]
         # --- parse profile
-        prof = self.get(which, t=t, z=z, hex=hex)
-
+        y, descr, uom, _ = self.get(what, hex=hex, z=z, metadata=True)
         # --- select independent variable
-        # it can be time or axial coordinate
-        if not self.core.trans:
-            times = None # np.array([0])
-        else:  # parse time from h5 file
-            datapath = os.path.join(self.THpath, "output_TH.h5")
-            if isdistr:
-                times = cp(self.get('timeDistr')[()])
-                if plotvstime:
-                    t = times
-            else:
-                times = cp(self.get('time')[()])
-                if plotvstime:
-                    t = times
+        for idx, path in enumerate(self.HDF5_path):
+            if what in path:
+                if "/" in what:
+                    dset = what.split("/")[-1]
+                    dset_in_path = path.split("/")[-1]
+                else:
+                    dset = what
+                    dset_in_path = path.split("/")[-1]
 
-        if t is None:
-            t = [0]  # initial condition
+                if dset == dset_in_path:
+                    dsetpath = self.HDF5_path[idx]
+                    break
 
-        if hex is None:
-            ihex = [0] # 1st hexagon (this is python index, not hex. number)
+        # select data type
+        if "distributions/" in dsetpath:
+            read_distr = True
+            read_inout = False
+            read_peak = False
+        elif "inlet_outlet/" in dsetpath:
+            read_distr = False
+            read_inout = True
+            read_peak = False
+        elif "peak/" in dsetpath:
+            read_distr = False
+            read_inout = False
+            read_peak = True
+
+        if read_distr:
+            t = self.get("distributions/time")
+        elif read_inout:
+            t = self.get("inlet_outlet/time")
         else:
-            ihex = [h-1 for h in hex]
+            t = self.get("peak/time")
 
+        xlabel = f"time [s]"
+        times = None
+
+        # nTimeConfig = len(self.core.TH.time)
         ax = plt.gca() if ax is None else ax
-
-        if not isdistr:
-            # --- PLOT
+        if read_inout or read_peak:
             # plot against time
             with plt.style.context(sty1D):
-                handles = []
-                handlesapp = handles.append
-                if abscissas is not None:
-                    x = abscissas
-                else:
-                    x = times
-                y = prof
-                lin1, = ax.plot(x, y, **kwargs)
+
+                lin1, = ax.plot(t, y, **kwargs)
                 ax.set_xlabel(xlabel)
                 if ylabel is None:
-                    # select unit of measure corresponding to profile
-                    ax.set_ylabel(fr"{which} {uom}")
+
+                    if "/" in what:
+                        dset = what.split("/")[-1]
+                    else:
+                        dset = what
+
+                    if rcParams['text.usetex']:
+                        ax.set_ylabel(rf"{dset} ${uom}$")
+                    else:
+                        ax.set_ylabel(f"{dset} {uom}")
+
                 else:
                     ax.set_ylabel(ylabel)
         else:   # plot distribution
+            if hex is None:
+                raise THOutputError("'hex' argument must be specified to plot distributions!")
+            if z is None:
+                raise THOutputError("'z' argument must be specified to plot distributions!")
+
+            if y.ndim > 1:
+                y = np.squeeze(y)
             # get python-wise index for slicing
             idt, idz = self._shift_index(t, z, times=times)
             # map indexes from full- to sliced-array
-            # idt, idz = self._to_index(idt, idz)
-
-            if plotvstime:  # plot against time
-                x = times
-                dim2plot = 'ntim'
-                idx = 0
-                if xlabel is None:
-                    xlabel = 'time [s]'
-            else:  # plot time snapshots, if any, against axial coordinate
-                x = self.core.TH.zcoord
-                dim2plot = 'nelz'
-                idx = 1
-                if xlabel is None:
-                    xlabel = 'z-coordinate [m]'
+            idt, idz = self._to_index(idt, idz)
 
             # --- DEFINE SLICES
-            if not hasattr(t, "__len__"):
-                t = [t]
-
-            if not hasattr(z, "__len__"):
-                z = [z]
-
-            dimdict = {'ntim': idt, 'nelz': idz, 'nhex': ihex}
-            usrdict = {'ntim': t, 'nelz': z, 'nhex': hex}
-            dimlst = [None]*len(dimdict.keys())
-            for k in dimdict.keys():
-                i = list(dimdict.keys()).index(k)
+            dimdict = {'iTime': idt, 'iAxNode': idz, 'iChan': hex}
+            usrdict = {'iTime': t, 'iAxNode': z, 'iChan': hex}
+            h5f = THoutput.myh5open(self.THpath)
+            dims = h5f[dsetpath].attrs['dimensions'][0].decode()
+            h5f.close()
+            dims = dims[1:-1].split(", ")
+            dimlst = [None]*len(dims)
+            for k in dims:
+                i = dims.index(k)
                 dimlst[i] = dimdict[k]
             # define multi-index
+            dim2plot = 'iTime'
+            idx = dims.index('iTime')
             tmp = dimlst.pop(idx)
             indexes = list(itertools.product(*dimlst))
             indexes = [list(tup) for tup in indexes]
@@ -752,46 +715,37 @@ class THoutput:
                 indexes[i].insert(idx, tmp)
 
             # --- PLOT
-            # plot against time or axial coordinate
+            # plot against time
             with plt.style.context(sty1D):
                 ax = plt.gca() if ax is None else ax
                 handles = []
                 handlesapp = handles.append
                 ymin, ymax = np.inf, -np.inf
-                # loop over dimensions to slice
-                for i, s in enumerate(indexes):
-                    y = prof[s[i]]
-                    # label settings
-                    if autolabel:
-                        label = self._build_label(s, dims, dim2plot, usrdict)
-                    else:
-                        if "label" in kwargs.keys():
-                            label = kwargs["label"]
-                            kwargs.pop("label")
-                        else:
-                            label = None
 
-                    if abscissas is not None:
-                        x = abscissas
-                    lin1, = ax.plot(x, y, label=label, **kwargs)
-                    handlesapp(lin1)
-                    # track minimum and maximum
-                    if ylims is None:
-                        ymin = y.min() if y.min() < ymin else ymin
-                        ymax = y.max() if y.max() > ymax else ymax
-
-                if ylims is not None:
-                    ymin = min(ylims)
-                    ymax = max(ylims)
+                lin1, = ax.plot(t, y, label=label, **kwargs)
+                handlesapp(lin1)
+                # track minimum and maximum
+                if ylims is None:
+                    ymin = y.min() if y.min() < ymin else ymin
+                    ymax = y.max() if y.max() > ymax else ymax
 
                 plt.xlabel(xlabel)
-                if rcParams['text.usetex']:
-                    plt.ylabel(rf"{which} ${uom}$")
+                if ylabel is None:
+
+                    if "/" in what:
+                        dset = what.split("/")[-1]
+                    else:
+                        dset = what
+
+                    if rcParams['text.usetex']:
+                        plt.ylabel(rf"{dset} ${uom}$")
+                    else:
+                        plt.ylabel(f"{dset} {uom}")
                 else:
-                    plt.ylabel(f"{which} {uom}")
+                    plt.ylabel(ylabel)
 
                 # ax.set_ylim(ymin, ymax)
-                ax.set_xlim(x.min(), x.max())
+                ax.set_xlim(t.min(), t.max())
 
                 legend_x = 0.50
                 legend_y = 1.01
@@ -1010,50 +964,6 @@ class THoutput:
 
         return idt, idz
 
-    def _build_label(self, s, dims, dim2plot, usrdict):
-        """Build legend label.
-
-        Parameters
-        ----------
-        s : list
-            Slice for the np.array.
-        dims : list
-            List of dimensions.
-        dim2plot : string
-            Dimension to be plotted.
-        usrdict : dict
-            Dict mapping dimension name and lists.
-
-        Returns
-        -------
-        str
-            Label for the plot.
-        """
-        label_dict = {'nhex': 'n'}
-        dim2plot_dict = {'ntim': 't', 'nelz': 'z'}
-        uom = {'ntim': 's', 'nelz': 'm'}
-
-        if plt.rcParams['text.usetex']:
-            equal = "$=$"
-        else:
-            equal = "="
-
-        label = []
-        for i, k in enumerate(dims):
-            if self.core.dim == 1 and k == 'nhex':
-                continue
-
-            if k not in ['ntim', 'nelz']:
-                txt = usrdict[k][s[i]]
-                txt = rf"{label_dict[k]}{equal}{txt}"
-                label.append(txt)
-            else:
-                if k != dim2plot:
-                    txt = usrdict[k][s[i]]
-                    txt = rf"{dim2plot_dict[k]}{equal}{txt} {uom[k]}"
-                    label.append(txt)
-
-        return str(", ".join(label))
 
     @staticmethod
     def __wopen(h5name, ans=None):

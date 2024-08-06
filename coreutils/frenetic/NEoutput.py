@@ -792,6 +792,7 @@ class NEoutput:
                     mydict = mydict[g]
                 elif isinstance(mydict, list):
                     uom = uoms[mydict.index(g)]
+            color = None
         else:
             if metadata:
                 description = h5f[dsetpath].attrs["description"][0].decode()
@@ -1229,7 +1230,7 @@ class NEoutput:
                abscissas=None, z=None, hex=None, leglabels=None, 
                figname=None, xlabel=None,
                xlims=None, ylims=None, ylabel=None, geometry=None,
-               style='sty1D.mplstyle', norm=True, t_config=True, 
+               style='sty1D.mplstyle', norm=False, t_config=True, 
                legend=True, **kwargs):
         """
         Plot integral param. or distribution against time.
@@ -1266,7 +1267,7 @@ class NEoutput:
             what = self.MapVersion["alias"][what]
 
         # --- parse profile
-        y, descr, uom = self.get(what, gro=gro, hex=hex, z=z, pre=pre, metadata=True)
+        y, descr, uom, _ = self.get(what, gro=gro, hex=hex, z=z, pre=pre, metadata=True)
         # --- select independent variable
         for idx, path in enumerate(self.HDF5_path):
             if what in path:
@@ -1361,11 +1362,11 @@ class NEoutput:
                 ymin, ymax = np.inf, -np.inf
                 # loop over dimensions to slice
                 for i, s in enumerate(indexes):
-                    y = prof[s[i]]  # .take(indices=d, axis=i)
+                    yi = y[s[i]]  # .take(indices=d, axis=i)
                     label = self._build_label(s, dims, dim2plot, usrdict)
                     if abscissas is not None:
                         x = abscissas
-                    lin1, = ax.plot(x, y, label=label, **kwargs)
+                    lin1, = ax.plot(x, yi, label=label, **kwargs)
                     handlesapp(lin1)
                     # track minimum and maximum
                     if ylims is None:
@@ -1421,9 +1422,9 @@ class NEoutput:
                 if figname is not None:
                     ax.savefig(figname)
 
-    def zplot1D(self, what, gro=None, pre=None, grp=None,
+    def zplot1D(self, what, t, gro=None, pre=None, grp=None,
                 prp=None, ax=None, label=None,
-               abscissas=None, t=None, hex=None, leglabels=None, 
+               abscissas=None, hex=None, leglabels=None, 
                figname=None, xlabel=None,
                xlims=None, ylims=None, ylabel=None, geometry=None,
                style='sty1D.mplstyle', norm=False,
@@ -1478,11 +1479,11 @@ class NEoutput:
         zcuts = self.core.NE.AxialConfig.zcuts
         if norm:
             z = z/z.max()
-            if xlabel is None and rcParams['text.usetex']:
-                xlabel = " normalised axial coordinate $[-]$"
+            if ylabel is None and rcParams['text.usetex']:
+                ylabel = " normalised axial coordinate $[-]$"
         else:
-            if xlabel is None:
-                xlabel = f"axial coordinate [cm]"
+            if ylabel is None:
+                ylabel = f"axial coordinate [cm]"
 
         # --- PLOT
         ax = plt.gca() if ax is None else ax
@@ -1493,47 +1494,38 @@ class NEoutput:
             handlesapp = handles.append
             ymin, ymax = np.inf, -np.inf
             # loop over dimensions to slice
-            lin1, = ax.step(z, y, where='mid', label=label, **kwargs)
+            lin1, = ax.step(y, zcuts[:-1], where='pre', label=label, **kwargs)
+            # yplot = np.insert(y, [0], y[0])
+            # lin1 = ax.stairs(z, edges=yplot, label=label, **kwargs)
             handlesapp(lin1)
             # track minimum and maximum
             if ylims is None:
-                ymin = y.min() if y.min() < ymin else ymin
-                ymax = y.max() if y.max() > ymax else ymax
+                ymin = zcuts.min() if zcuts.min() < ymin else ymin
+                ymax = zcuts.max() if zcuts.max() > ymax else ymax
 
             if ylims is not None:
                 ymin = min(ylims)
                 ymax = max(ylims)
 
-            ax.set_xlabel(xlabel)
-            if ylabel is None:
+            ax.set_ylabel(ylabel)
+            if xlabel is None:
                 if "/" in what:
                     dset = what.split("/")[-1]
                 else:
                     dset = what
 
                 if rcParams['text.usetex']:
-                    ylabel = rf"{dset} ${uom}$"
-                    ax.set_ylabel(ylabel)
+                    xlabel = rf"{dset} ${uom}$"
+                    ax.set_xlabel(xlabel)
                 else:
-                    ylabel = f"{dset} {uom}"
-                    ax.set_ylabel(ylabel)
+                    xlabel = f"{dset} {uom}"
+                    ax.set_xlabel(xlabel)
             else:
-                ax.set_ylabel(ylabel)
+                ax.set_xlabel(xlabel)
 
             # ax.set_ylim(ymin, ymax)
-            if xlims is None:
-                ax.set_xlim(zcuts.min(), zcuts.max())
-
-            # legend_x = 0.50
-            # legend_y = 1.01
-            # ncol = 2 if len(indexes) < 4 else 4
-            # if leglabels is not None:
-            #     plt.legend(handles, leglabels, bbox_to_anchor=(legend_x, legend_y),
-            #             loc='lower center', ncol=ncol)
-            # else:
-            #     if legend:
-            #         plt.legend(bbox_to_anchor=(legend_x, legend_y),
-            #                 loc='lower center', ncol=ncol)
+            if ylims is None:
+                ax.set_ylim(zcuts.min(), zcuts.max())
 
             plt.tight_layout()
             # plt.show()
@@ -1541,7 +1533,7 @@ class NEoutput:
                 ax.savefig(figname)
 
     def RadialMap(self, what, z=0, t=0, pre=0, gro=1, grp=0,
-                  label=False, figname=None, hex=None,
+                  hex=None, label=False, figname=None, 
                   usetex=False, fill=True, axes=None, cmap=None,
                   thresh=None, cbarLabel=True, uom=None, descr=None,
                   xlabel=None, ylabel=None,
