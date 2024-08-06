@@ -31,9 +31,9 @@ ene_keys = ['infNubar', 'infInvv', 'infKappa', 'infInvv',  'infChit',
 serp_keys = [*scatt_keys, *xsdf_keys, *ene_keys, 'infFlx']
 serp_phot_keys = ['KermaPh', 'Rayleigh', 'Compton', 'PProduction', 'Photoelectric', 'nuPh', 'TotPhProd']
 
-sumxs = ['Tot', 'Abs', 'Remxs']
+sumxs = ['Tot', 'Abs', 'Rem']
 indepdata = ['Capt', 'Fiss', 'S0', 'Nubar', 'Diffcoef', 'Chid', 'Chip']
-basicdata = ['Fiss', 'Nubar', 'S0', 'Chit', 'Nsf']
+basicdata = ['Fiss', 'Nubar', 'S0', 'Sp0', 'Chit', 'Nsf']
 kinetics = ['lambda', 'beta']
 alldata = list(set([*sumxs, *indepdata, *basicdata, *kinetics]))
 
@@ -43,7 +43,7 @@ collapse_xsf = ['Nubar', 'Chid', 'Chit', 'Chip', 'FissEn']
 
 units = {'Chid': '-', 'Chit': '-', 'Chip': '-', 'Tot': 'cm^{-1}',
         'Capt': 'cm^{-1}', 'Abs': 'cm^{-1}', 'Fiss': 'cm^{-1}',
-        'NuSf': 'cm^{-1}', 'Remxs': 'cm^{-1}', 'Transpxs': 'cm^{-1}',
+        'NuSf': 'cm^{-1}', 'Rem': 'cm^{-1}', 'Transpxs': 'cm^{-1}',
         'FissEn': 'MeV', 'S': 'cm^{-1}', 'Nubar': '-', 'Invv': 's/cm',
         'Difflenght': 'cm', 'Diffcoef': 'cm', 'Flx': 'a.u.',
         'Kerma': 'J/cm'}
@@ -51,10 +51,17 @@ units = {'Chid': '-', 'Chit': '-', 'Chip': '-', 'Tot': 'cm^{-1}',
 xslabels = {'Chid': 'delayed fiss. emission spectrum', 'Chit': 'total fiss. emission spectrum',
             'Chip': 'prompt fiss. emission spectrum', 'Tot': 'Total xs',
             'Capt': 'Capture xs', 'Abs': 'Absorption xs', 'Fiss': 'Fission xs',
-            'NuSf': 'Fiss. production xs', 'Remxs': 'Removal xs', 'Transpxs': 'Transport xs',
+            'NuSf': 'Fiss. production xs', 'Rem': 'Removal xs', 'Transpxs': 'Transport xs',
             'FissEn': 'Fiss. energy', 'S': 'Scattering xs', 'Nubar': 'neutrons by fission',
             'Invv': 'Inverse velocity', 'Difflenght': 'Diff. length', 'Diffcoef': 'Diff. coeff.',
-            'Flx': 'Flux spectrum', 'Kerma': 'KERMA coefficient'}
+            'Flx': 'Flux spectrum', 'Kerma': 'KERMA coefficient', 'Rabs': 'Reduced absorption'}
+
+logging.basicConfig(filename="coreutils.log",
+                    filemode='a',
+                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
+
 
 def readSerpentRes(datapath, energygrid, T, beginswith,
                    egridname=False):
@@ -147,7 +154,7 @@ def readSerpentRes(datapath, energygrid, T, beginswith,
     return res, det
 
 
-def Homogenise(materials, weights, mixname):
+def Homogenise(materials, weights, mixname, fixdata):
     """Homogenise multi-group parameters.
 
     Parameters
@@ -249,7 +256,10 @@ def Homogenise(materials, weights, mixname):
             tmp = np.divide(data, TOTFLX, where=TOTFLX!=0)
             hd[key] = tmp
 
-    homogmat.datacheck()
+    homogmat.add_missing_xs()
+    if fixdata:
+        homogmat.repair_xs()
+
     return homogmat
 
 
@@ -258,7 +268,7 @@ class NEMaterial():
 
     Parameters
     ----------
-    uniName: str
+    UniName: str
         Universe name.
     energygrid: iterable
         Energy group structure containing nE+1 group boundaries where nE is the
@@ -281,7 +291,7 @@ class NEMaterial():
         if ``basename`` is not None, directories in the form 
         "Tf_{}_Tc_{}" are searched  and "Tf_{}_Tc_{}" suffix 
         is attached to the file name
-    datacheck: bool, optional
+    fixdata: bool, optional
         Flag to check and ensure data consistency, by default ``True``.
     init: bool, optional
         Flag to initialise the object as empty, by default ``False``
@@ -308,7 +318,7 @@ class NEMaterial():
         1D array of length ``nE`` with the capture cross section in cm^-1.
     Fiss: np.array
         1D array of length ``nE`` with the fission cross section in cm^-1.
-    Remxs: np.array
+    Rem: np.array
         1D array of length ``nE`` with the removal cross section in cm^-1.
     Transpxs: np.array
         1D array of length ``nE`` with the transport cross section in cm^-1.
@@ -340,9 +350,9 @@ class NEMaterial():
     
     """
 
-    def __init__(self, uniName=None, energygrid=None, datapath=None,
+    def __init__(self, UniName=None, energygrid=None, datapath=None,
                  egridname=None, h5file=None, reader='json', serpres=None,
-                 serpdet=None, basename=False, temp=False, datacheck=True,
+                 serpdet=None, basename=False, temp=False, fixdata=True,
                  init=False, energygridPH=None, P1consistent=False):
         if h5file:
             if isinstance(h5file, dict):
@@ -372,7 +382,7 @@ class NEMaterial():
                         raise OSError(f'Check coreutils tree for NEdata: {pwd}')
                     # look into default NEdata dir
                     datapath = str(pwd.joinpath('NEdata', f'{egridname}'))
-                    filename = uniName
+                    filename = UniName
                 elif not path.isdir(datapath):
                     pwd = Path(__file__).parent.parent.parent
                     if 'coreutils' not in str(pwd):
@@ -446,12 +456,12 @@ class NEMaterial():
                     else:
                         raise OSError(f'{fname} not found!')
             else:
-                self._readserpentres(serpres, uniName, nE, egridname)
+                self._readserpentres(serpres, UniName, nE, egridname)
                 if energygridPH is None:
                     nEPH = 0
                 else:
                     nEPH = len(energygridPH) - 1
-                self._readserpentdet(serpdet, uniName, nE, nEPH)
+                self._readserpentdet(serpdet, UniName, nE, nEPH)
 
             self.nE = nE
             # FIXME TODO
@@ -463,7 +473,7 @@ class NEMaterial():
                 self.energygridPH = energygridPH
                 self.nEPH = len(self.energygridPH) - 1
 
-            self.UniName = uniName
+            self.UniName = UniName
             self.P1consistent = P1consistent
 
             try:
@@ -478,8 +488,11 @@ class NEMaterial():
             # //2 since there are 'S' and 'Sp'
             S = sum('S' in s for s in datastr)//2
             self.L = S if S > L else L  # get maximum scattering order
-            if datacheck:
-                self.datacheck()
+
+            self.add_missing_xs()
+
+            if fixdata:
+                self.repair_xs()
 
     def _readjson(self, path):
         """
@@ -503,7 +516,9 @@ class NEMaterial():
             else:
                 self.__dict__[k] = v
 
-    def _readserpentres(self, serpres, uniName, nE, egridname):
+        return None
+
+    def _readserpentres(self, serpres, UniName, nE, egridname):
         """Transform :class:`serpentTools.ResultsReader` object 
             into :class:``coreutils.NEMaterial`` object.
 
@@ -511,7 +526,7 @@ class NEMaterial():
         ----------
         serpres : dict
             Dictionary of :class:`serpentTools.ResultsReader` objects.
-        uniName : str
+        UniName : str
             Name of the material.
         nE: int
             Number of energy groups.
@@ -528,15 +543,15 @@ class NEMaterial():
         data = None
         for res in serpres.values():
             try:
-                data = res.getUniv(uniName, 0, 0, 0)
+                data = res.getUniv(UniName, 0, 0, 0)
             except KeyError:
                 continue
 
         if data is None:
-            raise OSError(f'{uniName} data not available in Serpent files!')
+            raise OSError(f'{UniName} data not available in Serpent files!')
 
         if len(data.infExp['infAbs']) != nE:
-            raise OSError(f'{uniName} energy groups do not match with \
+            raise OSError(f'{UniName} energy groups do not match with \
                           input grid!')
 
         selfdic = self.__dict__
@@ -555,7 +570,7 @@ class NEMaterial():
 
             if max_rsd*100 > 1:
                 g_max = np.argmax(rsd)
-                logging.warning(f'Serpent PRSD of {my_key} = {max_rsd*100} in group={g_max+1} in {uniName}.')
+                logging.warning(f'Serpent PRSD of {my_key} = {max_rsd*100:.1f} in group={g_max+1} in {UniName}.')
 
             if 'Kappa' in my_key:
                 selfdic['FissEn'] = vals
@@ -577,7 +592,7 @@ class NEMaterial():
         else:
             selfdic['lambda'] = np.array([selfdic['lambda_tot']])
 
-    def _readserpentdet(self, serpdet, uniName, nE, nEPH):
+    def _readserpentdet(self, serpdet, UniName, nE, nEPH):
         """Transform :class:`serpentTools.ResultsReader` object 
             into :class:``coreutils.NEMaterial`` object.
 
@@ -585,7 +600,7 @@ class NEMaterial():
         ----------
         serpdet : dict
             Dictionary of :class:`serpentTools.DetectorsReader` objects.
-        uniName : str
+        UniName : str
             Name of the material.
         nE: int
             Number of energy groups.
@@ -600,19 +615,19 @@ class NEMaterial():
             If the number of energy groups indicated by ``nE`` is not available.
         """
         data = None
-        data_name = f"{uniName}__nkerma"
+        data_name = f"{UniName}__nkerma"
 
         for det in serpdet.values():
             if data_name in det.detectors.keys():
                 det_data = det[data_name]
                 if len(det_data.energy) != nE:
-                    raise OSError(f'{uniName} energy groups in _det do not match with \
+                    raise OSError(f'{UniName} energy groups in _det do not match with \
                                     input grid!')
 
                 data = det_data.tallies
 
         if data is None:
-            logging.warning(f'{uniName} data not available in Serpent files!')
+            logging.warning(f'{UniName} data not available in Serpent files!')
         else:
             selfdic = self.__dict__
 
@@ -621,21 +636,20 @@ class NEMaterial():
 
             if rsd.max()*100 > 1:
                 g_max = np.argmax(rsd)
-                logging.warning(f'Serpent PRSD of kerma = {rsd.max()*100} in group={g_max+1} in {uniName}.')
+                logging.warning(f'Serpent PRSD of kerma = {rsd.max()*100} in group={g_max+1} in {UniName}.')
 
         # FIXME TODO work in progress
         if nEPH > 0:
             for mykey in serp_phot_keys:
-                data_name = f"{uniName}__{mykey}"
+                data_name = f"{UniName}__{mykey}"
                 # loop over elements in this universe
                 # TODO
                 det_data = det[data_name]
                 if len(det_data.energy) != nEPH:
-                    raise OSError(f'{uniName} PH energy groups in _det do not match with \
+                    raise OSError(f'{UniName} PH energy groups in _det do not match with \
                                     input grid!')
 
                 data = det_data.tallies
-
 
     def _readtxt(self, fname, nE):
         """
@@ -653,7 +667,7 @@ class NEMaterial():
                    It is the sum of Capt and Fiss cross sections.
             * Capt: capture cross section [cm^-1]
             * Fiss: fission cross section [cm^-1]
-            * Remxs: removal cross section [cm^-1]
+            * Rem: removal cross section [cm^-1]
                     It is the sum of Abs and group-removal.
             * Chit: total emission spectrum [-]
             * Chip: prompt emission spectrum [-]
@@ -835,7 +849,7 @@ class NEMaterial():
             plt.tight_layout()
             plt.savefig(f"{figname}.png")
 
-    def perturb(self, what, howmuch, depgro=None, sanitycheck=True):
+    def perturb(self, what, howmuch, depgro=None, fixdata=True):
         """Perturb material composition.
 
         Parameters
@@ -851,7 +865,7 @@ class NEMaterial():
         depgro : int, optional
             Departure energy group, by default ``False``. This argument is needed to perturb
             the scattering cross section.
-        sanitycheck: bool, optional
+        fixdata: bool, optional
             Flag to check and ensure data consistency, by default ``True``.
 
         Returns
@@ -906,7 +920,7 @@ class NEMaterial():
                             mydic[key][depgro][g] = mydic[key][depgro][g]*R
 
                 else:
-                    if sanitycheck:
+                    if fixdata:
                         raise OSError(f'{what} cannot be perturbed \
                                       directly!')
                     else:
@@ -918,18 +932,111 @@ class NEMaterial():
                             delta = mydic[what][depgro]*howmuch[g]
                             mydic[what][depgro] = mydic[what][depgro]+delta
 
-        if sanitycheck:
-            # force normalisation
-            if abs(self.Chit.sum() - 1) > 1E-4:
-                if np.any(self.Chit == 0) :
-                    pass
+        if fixdata:
+            self.repair_xs()
+
+    def repair_xs(self):
+        """Ensure data consistency.
+
+        Parameters
+        ----------
+        ``None``.
+
+        Returns
+        -------
+        ``None``.
+
+        """
+        datadic = self.__dict__
+        datavail = copy(list(datadic.keys()))
+        # --- compute in-group scattering
+        InScatt = np.diag(self.S0)
+        sTOT = self.S0.sum(axis=0) if len(self.S0.shape) > 1 else self.S0
+
+        self.Nsf = self.Fiss*self.Nubar
+
+        self.Abs = self.Fiss + self.Capt
+
+        self.Rem = self.Abs + sTOT - InScatt
+
+        self.Tot = self.Rem + InScatt
+
+        # ensure non-zero total XS
+        self.bad_data = False
+        if np.count_nonzero(self.Tot) != self.Tot.shape[0]:
+            self.bad_data = True
+
+        self.Tot[self.Tot <= 0] = 1E-8
+
+        # --- compute diffusion coefficient and transport xs
+        if self.P1consistent:
+            # --- compute transport xs (derivation from P1)
+            self.Transpxs = self.Tot-self.S1.sum(axis=0)
+            self.Diffcoef = 1/(3*self.Transpxs)
+        else:
+            self.Transpxs[self.Transpxs <= 1E-8] = 1E-8
+            self.Diffcoef = 1/(3*self.Transpxs)
+
+        self.Rem[self.Rem <= 0] = 1E-8 # avoid huge diff. coeff. and length
+
+        self.DiffLength = np.sqrt(self.Diffcoef / self.Rem)
+
+        self.MeanFreePath = 1 / self.Tot.max()
+
+        self.Fiss[self.Fiss <= 5E-7] = 0
+
+        isFiss = self.Fiss.max() > 0
+
+        if isFiss:
+            self.Chit /= self.Chit.sum()
+
+        kincons = True
+        for s in kinetics:
+            if s not in datavail:
+                kincons = False
+                self.__dict__[s] = [0]
+
+        if kincons:
+            if isFiss:
+                if len(self.Chid.shape) == 1:
+                    # each family has same emission spectrum
+                    # FIXME FIXME check Serpent RSD and do correction action
+                    self.Chid[self.Chid <= 1E-4] = 0
+                    self.Chid /= self.Chid.sum()
+                    self.Chid = np.asarray([self.Chid]*self.NPF)
+                elif self.Chid.shape != (self.NPF, self.nE):
+                    raise NEMaterialError(f'Delayed fiss. spectrum should be \
+                                    ({self.NPF}, {self.nE})')
+
+                # FIXME FIXME check Serpent RSD and do correction action
+                self.Chip[self.Chip <= 1E-4] = 0
+
+                try:
+                    for g in range(0, self.nE):
+                        chit = (1-self.beta.sum())*self.Chip[g] + \
+                                np.dot(self.beta, self.Chid[:, g])
+                        if abs(self.Chit[g]-chit) > 1E-3:
+                            raise NEMaterialError()
+                except NEMaterialError:
+                    logging.warning(f'Fission spectra or delayed fractions'
+                                    f' in {self.UniName} not consistent! '
+                                    'Forcing consistency acting on chi-prompt...')
                 else:
-                    self.Chit = self.Chit/self.Chit.sum()
+                    self.Chip = (self.Chit-np.dot(self.beta, self.Chid))/(1-self.beta.sum())
+                    for g in range(0, self.nE):
+                        chit = (1-self.beta.sum())*self.Chip[g] + \
+                                np.dot(self.beta, self.Chid[:, g])
+                        if abs(self.Chit[g]-chit) > 1E-4:
+                            raise NEMaterialError("Normalisation failed!")
 
-            self.datacheck()
+            # ensure pdf normalisation
+            if isFiss:
+                self.Chip /= self.Chip.sum()
+                for p in range(self.NPF):
+                    self.Chid[p, :] /= self.Chid[p, :].sum()
 
-    def datacheck(self):
-        """Check data consistency and add missing data.
+    def add_missing_xs(self):
+        """Add missing group constants.
 
         Parameters
         ----------
@@ -944,98 +1051,169 @@ class NEMaterial():
         E = self.energygrid
         datadic = self.__dict__
         datavail = copy(list(datadic.keys()))
-        # check basic reactions existence
+        # --- check basic reactions existence
         for s in basicdata:
             if s not in datavail:
                 if (s == 'Nsf' and 'Nubar' in datavail) or (s == 'Nubar' and 'Fiss' in datavail and 'Nubar') or (s == 'Fiss' and 'Nubar' in datavail):
                     continue
+                elif (s == 'S0' and 'Sp0' in datavail) or (s == 'Sp0' and 'S0' in datavail):
+                    continue
                 else:
                     raise OSError(f'{s} is missing in {self.UniName} data!')
-        # --- compute in-group scattering
-        InScatt = np.diag(self.S0)
-        sTOT = self.S0.sum(axis=0) if len(self.S0.shape) > 1 else self.S0
+
         # --- compute fission production cross section
         if hasattr(self, 'Nubar') and hasattr(self, 'Fiss'):
-            self.Nsf = self.Fiss*self.Nubar
-        elif hasattr(self, 'Nsf') and hasattr(self, 'Nubar'):
-            if max(self.Nubar)>0:
-                self.Fiss = self.Nsf/self.Nubar
-            else:
-                self.Fiss = self.Nubar
-        elif hasattr(self, 'Nsf') and hasattr(self, 'Fiss'):
-            if max(self.Fiss)>0: 
-                self.Nubar =self.Nsf/self.Fiss
-            else:
-                self.Nubar = self.Fiss
-        else:
-                raise OSError('To compute the fission properties at least two out of the three data "Nsf","Nubar" and "Fiss" are required')
-        # --- compute missing sum reactions
-        if 'Capt' in datavail:
-            self.Abs = self.Fiss+self.Capt
-        elif 'Abs' in datavail:
-            self.Capt = self.Abs-self.Fiss
-        elif 'Tot' in datavail:
-            self.Capt = self.Tot-sTOT-self.Fiss
-            self.Abs = self.Fiss+self.Capt
+            if not hasattr(self, 'Nsf'):
+                self.Nsf = self.Fiss*self.Nubar
+                logging.warning(f"'Nsf' defined from available 'Nubar' and 'Fiss' for {self.UniName}.")
 
-        self.Remxs = self.Abs+sTOT-InScatt
-        self.Tot = self.Remxs+InScatt
+        elif hasattr(self, 'Nsf') and hasattr(self, 'Nubar'):
+            if not hasattr(self, 'Fiss'):
+                if max(self.Nubar) > 0:
+                    self.Fiss = self.Nsf / self.Nubar
+                    logging.warning(f"'Fiss' defined from available 'Nubar' and 'Nsf' for {self.UniName}.")
+                else:
+                    self.Fiss = np.zeros((nE, ))
+                    logging.warning(f"'Fiss' set to zero for {self.UniName}.")
+
+        elif hasattr(self, 'Nsf') and hasattr(self, 'Fiss'):
+            if not hasattr(self, 'Nubar'):
+                if min(self.Fiss) > 0: 
+                    self.Nubar = self.Nsf / self.Fiss
+                    logging.warning(f"'Nubar' defined from available 'Nsf' and 'Fiss' for {self.UniName}.")
+                else:
+                    self.Nubar = self.Fiss
+                    logging.warning(f"'Nubar' set to zero for {self.UniName}.")
+        else:
+            raise OSError('To compute fission data at least two out of the three data "Nsf","Nubar" and "Fiss" are required')
+
+        # --- add scattering matrices
+        if not hasattr(self, 'Sp0'):
+            self.scat_nxn = 0
+            self.Sp0 = self.S0
+            logging.warning(f"'Sp0' set equal to 'S0' for {self.UniName}.")
+        else:
+            self.scat_nxn = 1
+
+        if not hasattr(self, 'S0'):
+            self.scat_n1n = 0
+            self.S0 = self.Sp0
+            logging.warning(f"'Sp0' set equal to 'S0' for {self.UniName}.")
+        else:
+            self.scat_n1n = 1
+
+        if self.scat_n1n:
+            InScatt = np.diag(self.S0)
+            sTOT = self.S0.sum(axis = 0) if len(self.S0.shape) > 1 else self.S0
+
+        # --- compute missing sum reactions
+        if hasattr(self, 'Capt') and hasattr(self, 'Fiss'):
+            if not hasattr(self, 'Abs'):
+                self.Abs = self.Fiss + self.Capt
+                logging.warning(f"'Abs' defined from available 'Fiss' and 'Capt' for {self.UniName}.")
+
+        elif hasattr(self, 'Abs') and hasattr(self, 'Fiss'):
+            if not hasattr(self, 'Capt'):
+                self.Capt = self.Abs - self.Fiss
+                logging.warning(f"'Capt' defined from available 'Fiss' and 'Abs' for {self.UniName}.")
+
+        elif hasattr(self, 'Abs') and hasattr(self, 'Capt'):
+            if not hasattr(self, 'Fiss'):
+                self.Fiss = self.Abs - self.Capt
+                logging.warning(f"'Fiss' defined from available 'Capt' and 'Abs' for {self.UniName}.")
+
+        elif hasattr(self, 'Rabs') and hasattr(self, 'Fiss'):
+            if not hasattr(self, 'Capt'):
+                self.Capt = self.Rabs - self.Fiss
+                logging.warning(f"'Capt' defined from available 'Fiss' and 'Rabs' for {self.UniName}.")
+
+        elif hasattr(self, 'Rabs') and hasattr(self, 'Capt'):
+            if not hasattr(self, 'Fiss'):
+                self.Fiss = self.Rabs - self.Capt
+                logging.warning(f"'Fiss' defined from available 'Capt' and 'Rabs' for {self.UniName}.")
+
+        elif hasattr(self, 'Tot') and hasattr(self, 'Fiss'):
+            if not hasattr(self, 'Capt'):
+                self.Capt = self.Tot - sTOT - self.Fiss
+                logging.warning(f"'Capt' defined from available 'Fiss' and 'Tot' for {self.UniName}.")
+
+            if not hasattr(self, 'Abs'):
+                self.Abs = self.Fiss + self.Capt
+                logging.warning(f"'Abs' defined from available 'Capt' and 'Fiss' for {self.UniName}.")
+
+        # --- add missing data
+        if not hasattr(self, 'Rabs'):
+            self.Rabs = self.Abs
+            logging.warning(f"'Rabs' set equal to 'Abs' for {self.UniName}.")
+
+        if not hasattr(self, 'Abs'):
+            self.Abs = self.Rabs
+            logging.warning(f"'Abs' set equal to 'Rabs' for {self.UniName}.")
+
+        if not hasattr(self, 'Rem'):
+            if self.scat_n1n:
+                self.Rem = self.Abs + sTOT - InScatt
+                logging.warning(f"'Rem' defined from available 'Abs' and 'S0' for {self.UniName}.")
+            else:
+                logging.warning(f"'Rem' not defined because 'S0' is missing for {self.UniName}.")
+
+        if not hasattr(self, 'Tot'):
+            self.Tot = self.Abs + sTOT
+            logging.warning(f"'Tot' defined from available 'Abs' and 'S0' for {self.UniName}.")
+
         # ensure non-zero total XS
         self.bad_data = False
         if np.count_nonzero(self.Tot) != self.Tot.shape[0]:
             self.bad_data = True
-        self.Tot[self.Tot <= 0] = 1E-8
 
-        if not hasattr(self, "fine_energygrid"):
-            avgE = 1/2*(E[:-1]+E[1:])*1.602176634E-13  # J
-            v = np.sqrt(2*avgE/1.674927351e-27)
-            self.Invv = 1/(v*100)  # s/cm
+        if not hasattr(self, "Invv"):
+            if not hasattr(self, "fine_energygrid"):
+                avgE = 1/2*(E[:-1]+E[1:])*1.602176634E-13  # J
+                v = np.sqrt(2*avgE/1.674927351e-27)
+                self.Invv = 1/(v*100)  # s/cm
+                logging.warning(f"'Invv' defined from the average kinetic energy in group g for {self.UniName}.")
 
         # --- compute diffusion coefficient and transport xs
-        if self.P1consistent:
-            if 'S1' in datavail:
-                # --- compute transport xs (derivation from P1)
-                self.Transpxs = self.Tot-self.S1.sum(axis=0)
-                # mu0 = self.S1/self.S0
-                self.Diffcoef = 1/(3*self.Transpxs)
-            elif 'Diffcoef' in datavail:
+        if not hasattr(self, 'Transpxs'):
+            if hasattr(self, 'Diffcoef'):
                 self.Transpxs = 1/(3*self.Diffcoef)
-            elif 'Transpxs' in datavail:
-                self.Transpxs[self.Transpxs <= 0] = 1E-8
-                self.Diffcoef = 1/(3*self.Transpxs)
+                logging.warning(f"'Transpxs' defined from available 'Diffcoef' for {self.UniName}.")
+
             else:
-                self.Transpxs = self.Tot
-                self.Diffcoef = 1/(3*self.Transpxs)
-        else:
-            # --- compute diffusion coefficient and transport xs
-            if 'Transpxs' in datavail:
-                self.Transpxs[self.Transpxs <= 1E-8] = 1E-8
-                self.Diffcoef = 1/(3*self.Transpxs)
-            elif 'Diffcoef' in datavail:
-                self.Transpxs = 1/(3*self.Diffcoef)
-            else:
-                self.Transpxs = self.Tot
-                self.Diffcoef = 1/(3*self.Transpxs)
+                if hasattr(self, 'S1') and self.P1consistent:
+                    self.Transpxs = self.Tot-self.S1.sum(axis=0)
+                    logging.warning(f"'Transpxs' defined from available 'Tot' and 'S1' for {self.UniName}.")
+
+                else:
+                    # assuming isotropic scattering
+                    self.Transpxs = self.Tot
+                    logging.warning(f"'Transpxs' defined from available 'Diffcoef' for {self.UniName}.")
+
+        if not hasattr(self, 'Diffcoef'):
+            self.Diffcoef = 1/(3*self.Transpxs)
+
         # --- compute diffusion length
-        self.Remxs[self.Remxs <= 0] = 1E-8 # avoid huge diff. coeff. and length
-        self.DiffLength = np.sqrt(self.Diffcoef/self.Remxs)
+        if not hasattr(self, 'DiffLength'):
+            if not hasattr(self, 'Rem'):
+                self.DiffLength = np.sqrt(self.Diffcoef / self.Abs)
+            else:
+                self.DiffLength = np.sqrt(self.Diffcoef / self.Rem)
         # --- compute mean free path
-        self.MeanFreePath = 1/self.Tot.max()
+        if not hasattr(self, 'MeanFreePath'):
+            self.MeanFreePath = 1/self.Tot.max()
         # --- ensure consistency kinetic parameters (if fissile medium)
-        self.Fiss[self.Fiss <= 5E-7] = 0
         isFiss = self.Fiss.max() > 0
-        if isFiss:
-            # FIXME FIXME check Serpent RSD and do correction action
-            # self.Chit[self.Chit <= 1E-4] = 0
-            if abs(self.Chit.sum() - 1) > 1E-4:
-                logging.warning(f'Total fission spectra in {self.UniName} not normalised!'
-                                'Forcing normalisation...')
-            # ensure pdf normalisation
-            self.Chit /= self.Chit.sum()
-            if "FissEn" not in self.__dict__.keys():
+        if not hasattr(self, "FissEn"):
+            if isFiss:
                 self.FissEn = np.array([200]*self.nE)
-        else:
-            self.FissEn = np.array([0]*self.nE)
+            else:
+                self.FissEn = np.array([0]*self.nE)
+
+        if not hasattr(self, "Chit"):
+            if isFiss:
+                raise OSError(f"'Chit' is missing from data {self.UniName}")
+            else:
+                self.Chit = np.zeros((self.nE, ))
 
         kincons = True
         for s in kinetics:
@@ -1044,68 +1222,38 @@ class NEMaterial():
                 self.__dict__[s] = [0]
 
         if kincons:
-            try:
-                if not hasattr(self,"beta_tot"):
-                    self.beta_tot = self.beta.sum()
-                if not hasattr(self, "lambda_tot"):
-                    self.__dict__["lambda_tot"] = np.mean(self.__dict__["lambda"])
-
+            if not hasattr(self, "beta"):
                 if isFiss:
-                    if len(self.Chid.shape) == 1:
-                        # each family has same emission spectrum
-                        # FIXME FIXME check Serpent RSD and do correction action
-                        self.Chid[self.Chid <= 1E-4] = 0
-                        self.Chid /= self.Chid.sum()
-                        self.Chid = np.asarray([self.Chid]*self.NPF)
-                    elif self.Chid.shape != (self.NPF, self.nE):
-                        raise NEMaterialError(f'Delayed fiss. spectrum should be \
-                                        ({self.NPF}, {self.nE})')
+                    raise OSError(f"'beta' is missing for {self.UniName}")
+                else:
+                    self.beta = np.zeros((self.NPF,))
 
-                    # FIXME FIXME check Serpent RSD and do correction action
-                    self.Chip[self.Chip <= 1E-4] = 0
+            if not hasattr(self, "lambda"):
+                if isFiss:
+                    raise OSError(f"'lambda' is missing for {self.UniName}")
+                else:
+                    self.__dict__["lambda"] = np.zeros((self.NPF,))
 
-                    try:
-                        for g in range(0, self.nE):
-                            chit = (1-self.beta.sum())*self.Chip[g] + \
-                                    np.dot(self.beta, self.Chid[:, g])
-                            if abs(self.Chit[g]-chit) > 1E-3:
-                                raise NEMaterialError()
-                    except NEMaterialError:
-                        logging.warning(f'Fission spectra or delayed fractions'
-                                        f' in {self.UniName} not consistent! '
-                                        'Forcing consistency acting on chi-prompt...')
-                    else:
+            if not hasattr(self,"beta_tot"):
+                self.beta_tot = self.beta.sum()
+            if not hasattr(self, "lambda_tot"):
+                # FIXME # TODO
+                self.__dict__["lambda_tot"] = np.mean(self.__dict__["lambda"])
+
+            if not hasattr(self, "Chip"):
+                if isFiss:
+                    if hasattr(self, "Chid"):
                         self.Chip = (self.Chit-np.dot(self.beta, self.Chid))/(1-self.beta.sum())
-                        for g in range(0, self.nE):
-                            chit = (1-self.beta.sum())*self.Chip[g] + \
-                                    np.dot(self.beta, self.Chid[:, g])
-                            if abs(self.Chit[g]-chit) > 1E-4:
-                                raise NEMaterialError("Normalisation failed!")
+                    else:
+                        raise OSError(f"'Chip' is missing from data {self.UniName}")
                 else:
-                    self.Chit = np.zeros((self.nE, ))
                     self.Chip = np.zeros((self.nE, ))
-                    self.Chid = np.zeros((self.NPF, self.nE))
 
-            except AttributeError as err:
-                if 'Chid' in str(err) or 'Chip' in str(err):
-                    self.Chid = np.asarray([self.Chit]*self.NPF)
-                    self.Chip = self.Chit
+            if not hasattr(self, "Chid"):
+                if isFiss:
+                    self.Chip = (self.Chit-np.dot(self.beta, self.Chid))/(1-self.beta.sum())
                 else:
-                    logging.warning(err)
-
-            # ensure pdf normalisation
-            if isFiss:
-                self.Chip /= self.Chip.sum()
-                for p in range(self.NPF):
-                    self.Chid[p, :] /= self.Chid[p, :].sum()
-        else:
-            if isFiss:
-                self.Chip = self.Chit
-                self.Chid = np.tile(self.Chit, (self.NPF, self.nE))
-            else:
-                self.Chit = np.zeros((self.nE, ))
-                self.Chip = np.zeros((self.nE, ))
-                self.Chid = np.zeros((self.NPF, self.nE))
+                    self.Chid = np.zeros((self.NPF, self.nE))
 
         if not hasattr(self, "Kerma"):
             self.Kerma = np.zeros((self.nE, ))
@@ -1141,7 +1289,7 @@ class NEMaterial():
 
             json.dump(tmp, f, sort_keys=True, indent=10)
 
-    def collapse(self, fewgrp, spectrum=None, egridname=None):
+    def collapse(self, fewgrp, spectrum=None, egridname=None, fixdata=True):
         """Collapse in energy the multi-group data.
 
         Parameters
@@ -1205,10 +1353,10 @@ class NEMaterial():
         collapsed['Flx'] = np.zeros((G, ))
 
         # manage reduced absorption collapsing
-        if hasattr(self, "Rabsxs"):
+        if hasattr(self, "Rabs"):
             # collapse the (n,xn) cross section
-            xs_abs_nxn = self.Abs - self.Rabsxs
-            collapsed["Rabsxs"] = np.zeros((G, ))
+            xs_abs_nxn = self.Abs - self.Rabs
+            collapsed["Rabs"] = np.zeros((G, ))
 
         for g in range(G):
             # select fine groups in g
@@ -1269,9 +1417,9 @@ class NEMaterial():
                     continue
 
             # --- reduced absorption
-            if hasattr(self, "Rabsxs"):
+            if hasattr(self, "Rabs"):
                 xs_abs_nxn_g = np.divide(flx[iS:iE].dot(xs_abs_nxn[iS:iE]), NC, where=NC!=0)
-                collapsed["Rabsxs"][g] = collapsed["Capt"][g] + collapsed["Fiss"][g] - xs_abs_nxn_g
+                collapsed["Rabs"][g] = collapsed["Capt"][g] + collapsed["Fiss"][g] - xs_abs_nxn_g
 
             iS = iE
 
@@ -1285,8 +1433,11 @@ class NEMaterial():
         for key in self.__dict__.keys():
             if key in collapsed.keys():
                 self.__dict__[key] = collapsed[key]
+
+        self.add_missing_xs()
         # ensure data consistency
-        self.datacheck()
+        if fixdata:
+            self.repair_xs()
 
     def isfiss(self):
         """Assess whether the material is fissile"""
