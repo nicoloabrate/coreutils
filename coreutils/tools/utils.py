@@ -20,12 +20,8 @@ repopath = Path(__file__).resolve().parents[2]
 repo = git.Repo(repopath)
 sha = repo.head.object.hexsha  # commit id
 
+logger = logging.getLogger(__name__)
 
-logging.basicConfig(filename="coreutils.log",
-                    filemode='a',
-                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
 
 
 def write_log_header():
@@ -40,11 +36,12 @@ def write_log_header():
     ``None``
     """
     # datetime object containing current date and time
+    sep = "".join(['-']*90)
     now = datetime.now()
     mmddyyhh = now.strftime("%B %d, %Y %H:%M:%S")
     with open("coreutils.log", "a") as f:
         f.write(f"Log file generated with python package `COREutils`: \n")
-        f.write(f"# -------------------------- \n")
+        f.write(f"{sep}")
         f.write(f"HOSTNAME: {socket.gethostname()} \n")
         try:
             f.write(f"USERNAME: {os.getlogin()} \n")
@@ -54,7 +51,7 @@ def write_log_header():
         f.write(f"GIT_COMMIT_ID: {sha} \n")
         f.write(f"GIT_BRANCH: {repo.active_branch} \n")
         f.write(f"DDYYMMHH: {mmddyyhh} \n")
-        f.write(f"# -------------------------- \n")
+        f.write(f"{sep}")
 
 
 def write_coreutils_msg(msg):
@@ -71,9 +68,9 @@ def write_coreutils_msg(msg):
     """
     sep = "".join(['-']*90)
     with open("coreutils.log", "a") as f:
-        f.write(f"# {sep} \n")
-        f.write(f"{msg}\n")
-        f.write(f"# {sep} \n")
+        # f.write(f"# {sep} \n")
+        f.write(f"- {msg}\n")
+        # f.write(f"# {sep} \n")
 
 
 def uncformat(data, std, fmtn=".5e", fmts=None):

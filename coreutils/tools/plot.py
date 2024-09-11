@@ -37,11 +37,8 @@ mycols1 = ["#19647e", "#28afb0", "#ee964b", # generated with Coloor
 xkcd = list(colors.XKCD_COLORS.keys())  
 mycols1.extend(xkcd)
 
-logging.basicConfig(filename="coreutils.log",
-                    filemode='a',
-                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 
 def AxialGeomPlot(core, which, time=0, label=False, assembly_name=False,
@@ -111,7 +108,7 @@ def AxialGeomPlot(core, which, time=0, label=False, assembly_name=False,
         axgesty = str(Path.joinpath(pwd, style))
     else:
         if not Path(style).exists():
-            logging.info(f'{style} style sheet not found! \
+            logger.info(f'{style} style sheet not found! \
                             Switching to default...')
         else:
             axgesty = style
@@ -413,7 +410,7 @@ def RadialMap(core, tallies=None, z=0, time=0, pre=0, gro=0, grp=0,
         radgesty = str(Path.joinpath(pwd, style))
     else:
         if not Path(style).exists():
-            logging.info(f'{style} style sheet not found! \
+            logger.info(f'{style} style sheet not found! \
                         Switching to default...')
         else:
            radgesty = style
@@ -669,7 +666,7 @@ def SlabPlot(core, time=0, ax=None, xlabel=None, figname=None, ncols=None, style
         axgesty = str(Path.joinpath(pwd, style))
     else:
         if not Path(style).exists():
-            logging.info(f'{style} style sheet not found! \
+            logger.info(f'{style} style sheet not found! \
                   Switching to default...')
         else:
             axgesty = style
@@ -684,7 +681,7 @@ def SlabPlot(core, time=0, ax=None, xlabel=None, figname=None, ncols=None, style
         reg = list(set(core.NE.labels.values()))
         nReg = len(reg)
         # color dict
-        asscol = dict(zip(reg, mycols))
+        asscol = dict(zip(reg, mycols1))
 
         labels = []
         handles = []

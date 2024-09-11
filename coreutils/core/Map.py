@@ -1,8 +1,9 @@
+import logging
 import numpy as np
 import itertools as it
 from numpy import pi, cos, sin
 from coreutils.core.UnfoldCore import UnfoldCore
-
+logger = logging.getLogger(__name__)
 
 class Map:
     """
@@ -298,7 +299,7 @@ class Map:
         """
         # check on geometry
         if self.rotation_angle != 60 and self.rotation_angle != 0:
-            logging.critical("FrenMap method works only for hexagonal core geometry!")
+            logger.critical("FrenMap method works only for hexagonal core geometry!")
             raise OSError("rotation angle should be 60 or 0 degrees")
 
         nsect = 6  # only six sextants for 60 degree rotation are allowed

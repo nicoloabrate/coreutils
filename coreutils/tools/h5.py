@@ -25,11 +25,8 @@ _types = (*_scalar_types, *_iter_types, str, bytes_,
             h5py._hl.dataset.Dataset, )
 _str2type = {i.__name__: i for i in _types}
 
-logging.basicConfig(filename="coreutils.log",
-                    filemode='a',
-                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 class read():
     """
@@ -193,7 +190,7 @@ class read():
                     enc = item.attrs['encoding'].decode('ascii')
                 except KeyError:
                     enc = 'ascii'
-                    logging.warning('type b''str'' read with'
+                    logger.warning('type b''str'' read with'
                           ' ''ascii'' encoding')
                 val = item.value.decode(enc)
             else:
@@ -287,7 +284,7 @@ class write():
         # --- open hdf5 file
         if h5filepath.exists():
             rmtree(h5filepath)
-            logging.warning(f'Overwriting file {corefname}')
+            logger.warning(f'Overwriting file {corefname}')
 
         self.fh5 = h5py.File(h5filepath, "a")
 
@@ -384,7 +381,7 @@ class write():
             if skip is not None:
                 for i, s in enumerate(skip):
                     if str(key) == s:
-                        logging.info(f"Skipping key '{s}' in HDF dumping.")
+                        logger.info(f"Skipping key '{s}' in HDF dumping.")
                         doskip = True
                     elif str(key) in s:
                         tmp = s.split('.')[1:][0]

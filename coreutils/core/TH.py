@@ -15,12 +15,7 @@ from coreutils.core.MaterialData import HTHexData
 from coreutils.core.Geometry import Geometry, AxialConfig, AxialCuts
 from coreutils.input.TH_input import *
 
-logging.basicConfig(filename="coreutils.log",
-                    filemode='a',
-                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
-
+logger = logging.getLogger(__name__)
 
 class TH:
     """

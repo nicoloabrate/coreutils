@@ -42,18 +42,13 @@ class Geometry:
 
     def _init(self, inpdict):
         # assign geometric quantities
+        # --- ASSEMBLY        
         self.AssemblyGeometry = AssemblyGeometry(inpdict['lattice_pitch'], inpdict['shape'])
 
         # assign further info, if provided
-        # --- ASSEMBLY
-        if inpdict['dim'] == 1:
-            self.config[0] = [1]
-            exit()
-        else:
-            if 'assembly' not in inpdict.keys():
-                raise GeometryError("`assembly` dict missing in input .json!")
         # --- PARSE ASSEMBLY NAMES AND MAP
         # sanity check
+        assembly_axial_scan = inpdict['assembly']
         if isinstance(inpdict['assembly'], list) and inpdict['dim'] == 2:
             assemblynames = inpdict['assembly']
         elif isinstance(inpdict['assembly'], dict):
@@ -69,14 +64,15 @@ class Geometry:
         self.assemblytypes = MyDict(dict(zip(np.arange(1, nReg+1), assemblynames)))
 
         # --- define core time-dep. configurations 
-        # TODO consider (and add) translations operated in the NE module
-        self.config[0] = UnfoldCore(inpdict['filename'], inpdict['rotation'], assemblynames).coremap
-
+        if inpdict['dim'] != 1:
+            # TODO consider (and add) translations operated in the NE module
+            self.config[0] = UnfoldCore(inpdict['filename'], inpdict['rotation'], assemblynames).coremap
+        else:
+            self.config[0] = [1]
         # --- assign axial regions (lattice)
         self.AssemblyDefinition = {}
-        for SA, axlat in inpdict['assembly'].items():
+        for SA, axlat in assembly_axial_scan.items():
             # TODO add sanity check on axlat
-
             nZ = len(axlat)
             upz = np.zeros((nZ,), dtype=float)
             loz = np.zeros((nZ,), dtype=float)
@@ -87,7 +83,7 @@ class Geometry:
                 loz[iax] = s[2] if s[1] > s[2] else s[1]
             self.AssemblyDefinition[SA] = AxialCuts(upz, loz, reg)
         # --- LATTICE
-        if 'lattice' in inpdict.keys():
+        if inpdict['lattice'] is not None:
             self.LatticeType = {}
             self.LatticeGeometry = {}
             latdict = inpdict['lattice']
@@ -95,7 +91,7 @@ class Geometry:
             if not isinstance(latdict, dict):
                 raise TypeError(f"``lattice`` should be of type `dict`, not `{type(latdict)}`")
             # --- PIN
-            if 'pin' in inpdict.keys():
+            if inpdict['pin'] is not None:
                 # sanity check
                 if not isinstance(latdict, dict):
                     raise TypeError(f"``pin`` should be of type `dict`, not `{type(inpdict['pin'])}`")
@@ -178,11 +174,13 @@ class Geometry:
             GEcore = tmp.coremap
         else:
             GEcore = [1]
-            self.nAss = 1
 
-        self.Map = Map(GEcore, inpdict['rotation'], self.AssemblyGeometry, inp=tmp.inp)
-        if not hasattr(self, 'Nass'):
-            self.nAss = len((self.Map.serpcentermap))
+        if inpdict['dim'] != 1:
+            self.Map = Map(GEcore, inpdict['rotation'], self.AssemblyGeometry, inp=tmp.inp)
+            if not hasattr(self, 'Nass'):
+                self.nAss = len((self.Map.serpcentermap))
+        else:
+            self.nAss = 1
 
         if inpdict["replacesa"] is not None:
             self.replaceSA(self.config[0], inpdict["replacesa"], 0, inpdict["dim"], 
@@ -324,7 +322,7 @@ class AssemblyGeometry:
 
     def _init(self, pitch, asstype):
         # --- hexagonal assembly
-        if asstype == 'H' or asstype == '1D':
+        if asstype == 'H':
             # by definition of pitch between two hexagonal assemblies
             self.apothema = pitch/2
             self.pitch = pitch
@@ -343,6 +341,7 @@ class AssemblyGeometry:
         # --- 1d slab
         elif asstype == '1D':
             self.height = pitch
+            self.pitch = pitch
             self.type = "1D"
             self.area = 1
             self.numedges = 2

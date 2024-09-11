@@ -16,6 +16,8 @@ from coreutils.core.MaterialData import *
 from coreutils.core.Geometry import Geometry, AxialConfig, AxialCuts
 from matplotlib import colors
 
+logger = logging.getLogger(__name__)
+
 mycols1 = ["#19647e", "#28afb0", "#ee964b", # generated with Coloor
            "#ba324f", "#1f3e9e", "#efd28d",
            "#ffffff", 
@@ -49,12 +51,6 @@ mycols1.extend(xkcd)
 #     asscol = dict(zip(reg_lbl, mycols1))
 # else:
 #     asscol = dict(zip(reg, mycols1))
-
-logging.basicConfig(filename="coreutils.log",
-                    filemode='a',
-                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
 
 class NE:
     """
@@ -116,6 +112,12 @@ class NE:
             self.fixdata = NEdata["fixdata"]
         else:
             self.fixdata = 1
+
+        if "nxn" in NEdata.keys():
+            self.use_nxn = NEdata["nxn"]
+        else:
+            self.use_nxn = False
+
         isPH = True if 'PH' in NEdata.keys() else False
 
         self.time = [0.]
@@ -192,7 +194,7 @@ class NE:
                 self.get_PH_energy_grid(NEdata["PH"])
             
             write_coreutils_msg(f"Read and assign multi-group constants to NE object")
-            self.get_material_data(univ, CI, fixdata=self.fixdata, isPH=isPH)
+            self.get_material_data(univ, CI, fixdata=self.fixdata, isPH=isPH, use_nxn=self.use_nxn)
 
             # --- check precursors family consistency
             NP = -1
@@ -211,7 +213,7 @@ class NE:
                 self.nPrp = 0 # FIXME TODO!
                 self.nGrp = len(self.energygridPH)-1
                 self.nDhp = 1 # FIXME TODO!
-                logging.info("DHP set to 1!")
+                logger.info("DHP set to 1!")
             else:
                 self.nPrp = 0
                 self.nGrp = 0
@@ -1261,7 +1263,8 @@ class NE:
                     dim = 3
                     self.replaceSA(core, {newtype: assbly}, time, isfren=isfren)
 
-    def get_material_data(self, univ, core, fixdata=True, isPH=False):
+    def get_material_data(self, univ, core, fixdata=True, isPH=False, use_nxn=False):
+
         try:
             path = self.NEdata['path']
         except KeyError:
@@ -1289,7 +1292,7 @@ class NE:
             try:
                 files = [f for f in os.listdir(serpath)]
             except FileNotFoundError as err:
-                logging.warning(str(err))
+                logger.warning(str(err))
                 files = []
 
         if not hasattr(self, 'data'):
@@ -1325,11 +1328,13 @@ class NE:
                 if u in serpuniv:
                     tmp[u] = NEMaterial(u, self.energygrid, egridname=self.egridname, 
                                         serpres=serpres, serpdet=serpdet, temp=T, fixdata=fixdata, 
-                                        P1consistent=self.NEdata["P1consistent"], energygridPH=energygridPH)
+                                        P1consistent=self.NEdata["P1consistent"], use_nxn=use_nxn,
+                                        energygridPH=energygridPH)
                 else: # look for data in json and txt format
                     tmp[u] = NEMaterial(u, self.energygrid, egridname=self.egridname,
                                         datapath=path, basename=u, temp=T, fixdata=fixdata, 
-                                        P1consistent=self.NEdata["P1consistent"], energygridPH=energygridPH)
+                                        P1consistent=self.NEdata["P1consistent"], use_nxn=use_nxn,
+                                        energygridPH=energygridPH)
             # --- HOMOGENISATION (if any)
             if core.dim != 2:
                 if self.AxialConfig.homogenised:

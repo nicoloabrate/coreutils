@@ -11,12 +11,8 @@ from coreutils.frenetic.frenetic_namelists import FreneticNamelist, FreneticName
 
 # TODO: implementare gestione proprieta' fotoni
 # TODO: quale coppia di temperature considero per i param. cinetici?
+logger = logging.getLogger(__name__)
 
-logging.basicConfig(filename="coreutils.log",
-                    filemode='a',
-                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
 
 def writemacro(core, path, nmix, vel, lambda0, beta0, temps,
                unimap, H5fmt=2):
@@ -67,7 +63,7 @@ def writemacro(core, path, nmix, vel, lambda0, beta0, temps,
     filepath = path.joinpath(inpname)
     if filepath.exists():
         rmtree(filepath)
-        logging.warning(f'Overwriting file {inpname}')
+        logger.warning(f'Overwriting file {inpname}')
 
     f = io.open(filepath, 'w', newline='\n')
     f.write('&MACROXS0\n')
@@ -246,13 +242,18 @@ def writeNEdata(core, path, verbose=False, txt=False, H5fmt=2):
     ``None``
     """
     # --- define list of output filenames
+    if core.NE.use_nxn:
+        scat_key = 'Sp0'
+    else:
+        scat_key = 'S0'
+
     outnames = ["DIFFCOEF", "ESIGF", "NUSF", "XS_FISS", "XS_SCATT", "XS_TOT",
                 "CHIT", "KERMA"]
-    matkeys = ['Diffcoef', 'Esigf', 'Nsf', 'Fiss', 'S0', 'Tot', 'Chit',
+    matkeys = ['Diffcoef', 'Esigf', 'Nsf', 'Fiss', scat_key, 'Tot', 'Chit',
                'Kerma']
     if verbose:
-        xsverb = ['Capt', 'Nubar', 'Sp0']
-        verb_out = ["XS_CAPT", "NU", "XS_PSCATT"]
+        xsverb = ['Rabs']
+        verb_out = ["XS_ABS"]
         # append to default list of names
         outnames.extend(verb_out)
         matkeys.extend(xsverb)
@@ -267,7 +268,7 @@ def writeNEdata(core, path, verbose=False, txt=False, H5fmt=2):
     # --- open hdf5 file
     if h5filepath.exists():
         rmtree(h5filepath)
-        logging.warning(f'Overwriting file {inpname}')
+        logger.warning(f'Overwriting file {inpname}')
 
     fh5 = h5.File(h5filepath, "a")
 
@@ -291,7 +292,7 @@ def writeNEdata(core, path, verbose=False, txt=False, H5fmt=2):
     if txt:
         # create directory
         if os.path.isdir("NEinputdata"):
-            logging.info("'NEinputdata' directory exists. Overwriting...")
+            logger.info("'NEinputdata' directory exists. Overwriting...")
             ans = "yes" # input()
         else:
             ans = "no"
@@ -383,9 +384,9 @@ def writeNEdata(core, path, verbose=False, txt=False, H5fmt=2):
                         elif data == 'Esigf':
                             FissEn = reg.FissEn
                             fiss = reg.Fiss
-                            xsdata = FissEn*fiss*1.60217653e-13         
+                            xsdata = FissEn*fiss*1.60217653e-13
                     # save in h5 file
-                    if 'S0' in data:
+                    if 'S0' in data or 'Sp0' in data:
                         tmp = np.array(xsdata.reshape(core.NE.nGro, core.NE.nGro), dtype=float)
                     else:
                         tmp = np.array(xsdata, dtype=float)
@@ -398,7 +399,6 @@ def writeNEdata(core, path, verbose=False, txt=False, H5fmt=2):
                     fh5_ih.attrs['label'] = str(core.NE.labels[regtype])
 
                     fh5_ih.create_dataset(dataname, data=tmp)
-
 
     fh5.close()
     
@@ -476,7 +476,7 @@ def writeConfig(core, path):
     filepath = path.joinpath(inpname)
     if filepath.exists():
         rmtree(filepath)
-        logging.warning(f'Overwriting file {inpname}')
+        logger.warning(f'Overwriting file {inpname}')
 
     f1 = io.open(filepath, 'w', newline='\n')
     NAssTypes = len(core.NE.assemblytypes)
@@ -629,7 +629,7 @@ def makeNEinput(core, path, H5fmt=2):
     filepath = path.joinpath(inpname)
     if filepath.exists():
         rmtree(filepath)
-        logging.warning(f'Overwriting file {inpname}')
+        logger.warning(f'Overwriting file {inpname}')
 
     f = io.open(filepath, 'w', newline='\n')
 

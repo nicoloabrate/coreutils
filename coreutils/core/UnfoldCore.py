@@ -2,11 +2,7 @@ import numpy as np
 from copy import deepcopy
 import logging
 
-logging.basicConfig(filename="coreutils.log",
-                    filemode='a',
-                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class UnfoldCore:
@@ -76,7 +72,7 @@ class UnfoldCore:
         # check that hexagonal symmetry holds
         Nx, Ny = np.shape(coremap)
         if Nx != Ny:
-            logging.error(f"The lattice has {Ny} rows and {Nx} columns!")
+            logger.error(f"The lattice has {Ny} rows and {Nx} columns!")
             raise OSError('The lattice should be squared! Check input file')
 
         # -- compute number of sectors
@@ -90,7 +86,7 @@ class UnfoldCore:
 
         # -- apply rotation, if needed
         if nsect == 1:
-            logging.info("No symmetry rotation is considered")
+            logger.info("No symmetry rotation is considered")
             self.coremap = coremap
 
         elif nsect == 2:
@@ -106,7 +102,7 @@ class UnfoldCore:
             self.coremap = UnfoldCore.rot45(coremap, Nx)
 
         else:  # no rotation available
-            logging.warning(f"Rotation of {rotangle} degree not available. No rotation performed!")
+            logger.warning(f"Rotation of {rotangle} degree not available. No rotation performed!")
             self.coremap = coremap
         # assign also input file for reproducibility
         self.inp = coremap0

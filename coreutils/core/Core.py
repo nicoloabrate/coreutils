@@ -1,13 +1,13 @@
 import os
 import re
-from shutil import which
 import sys
 import json
-# from tkinter import NE
+import logging
 import numpy as np
 import coreutils.tools.h5 as myh5
+
 from copy import deepcopy as cp
-# from collections import OrderedDict
+from shutil import which
 from pathlib import Path
 
 from coreutils.tools.utils import MyDict, write_log_header, write_coreutils_msg
@@ -20,11 +20,13 @@ from coreutils.core.MaterialData import *
 from coreutils.core.Geometry import Geometry, AxialConfig, AxialCuts
 from coreutils.frenetic.InpGen import inpgen, fillFreneticNamelist
 
+write_log_header()
 logging.basicConfig(filename="coreutils.log",
                     filemode='a',
-                    format='%(asctime)s %(levelname)s  %(funcName)s %(message)s',
+                    format='%(asctime)s :: %(name)s :: %(levelname)-8s ::  %(funcName)s :: %(message)s',
                     datefmt='%H:%M:%S',
                     level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class Core:
@@ -90,7 +92,6 @@ class Core:
             write_coreutils_msg(f"Build core object from an existing .h5 file, {inpjson}")
             self._from_h5(inpjson)
         elif ".json" in inpjson:
-            write_log_header()
             write_coreutils_msg(f"Build core object from a .json input file, {inpjson}")
             self.from_json(inpjson)
         else:
@@ -215,14 +216,15 @@ class Core:
             assemblynames = NEargs['assemblynames']
             nAssTypes = 1 if dim == 1 else len(assemblynames)
             assemblynames = MyDict(dict(zip(assemblynames.keys(), np.arange(1, nAssTypes+1))))
-            tmp = UnfoldCore(NEargs['filename'], NEargs['rotation'], assemblynames)
-            NEcore = tmp.coremap
+            if dim != 1:
+                tmp = UnfoldCore(NEargs['filename'], NEargs['rotation'], assemblynames)
+                NEcore = tmp.coremap
             self.NE = NE(NEargs, self)
         else:
             if dim == 1:
                 raise OSError('Cannot generate core object without NE namelist!')
             else:
-                logging.info('NE input not available, writing TH input only!')
+                logger.info('NE input not available, writing TH input only!')
 
         # --- TH OBJECT
         write_coreutils_msg(f"Build thermal-hydraulics object (TH)")
@@ -234,7 +236,7 @@ class Core:
             THcore = UnfoldCore(THargs['htdata']['filename'], THargs['rotation'], assemblynames).coremap
             self.TH = TH(THargs, self)
         else:
-            logging.info('TH input not available, writing NE input only!')
+            logger.info('TH input not available, writing NE input only!')
 
         # --- NE and TH CONSISTENCY CHECK
         write_coreutils_msg(f"Perform NE-TH sanity check")
@@ -244,7 +246,7 @@ class Core:
             BCcore = self.TH.BCconfig[0]
             if BCcore.shape != NEcore.shape:
                 msg = (f"NE and TH core dimensions mismatch: {BCcore.shape} vs. {NEcore.shape}")
-                logging.critical(msg)
+                logger.critical(msg)
                 raise OSError(msg)
 
             # non-zero elements location consistency check
@@ -260,12 +262,12 @@ class Core:
 
             if (tmp1 != tmp2).all():
                 msg = "Assembly positions in BC and NE mismatch. Check core input file!"
-                logging.critical(msg)
+                logger.critical(msg)
                 raise OSError(msg)
 
             if (tmp1 != tmp3).all():
                 msg = "Assembly positions in BC and TH mismatch. Check core input file!"
-                logging.critical(msg)
+                logger.critical(msg)
                 raise OSError(msg)
 
         # --- complete FRENETIC namelist and make input, if any

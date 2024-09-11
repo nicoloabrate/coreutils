@@ -23,11 +23,12 @@ rcParams['text.usetex']= True if sh.which('latex') else False
 pwd = Path(__file__).parent
 inp_json_map = pwd.joinpath("THversion.json")
 
-logging.basicConfig(filename="coreutils.log",
+logging.basicConfig(filename="coreutils_read.log",
                     filemode='a',
                     format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
                     datefmt='%H:%M:%S',
                     level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class THoutput:
     """
@@ -103,7 +104,7 @@ class THoutput:
                     MapOutput = json.load(f)
                 except json.JSONDecodeError as err:
                     print(err.args[0])
-                    logging.critical(err.args[0])
+                    logger.critical(err.args[0])
                     raise THOutputError(f"{err.args[0]} in {inp}")
         except FileNotFoundError:
             raise THOutputError(f"File {inp_json_map} not found!")
@@ -604,7 +605,7 @@ class THoutput:
                 raise THOutputError(f"{toolspath} not found!")
         else:
             if not Path(style).exists():
-                logging.info(f'{style} style sheet not found! \
+                logger.info(f'{style} style sheet not found! \
                                 Switching to default...')
             else:
                 sty1D = style

@@ -7,7 +7,7 @@ from coreutils.frenetic.frenetic_namelists import FreneticNamelist
 from pathlib import Path
 
 CImandatory = ('Tf_Tc',)
-GEmandatory = ('dim', 'shape', 'lattice_pitch') # 'lattice_pitch' only if shape!='1D', 'cuts' only in '1D'
+GEmandatory = ('dim', 'shape', 'lattice_pitch', 'assembly') # 'lattice_pitch' only if shape!='1D', 'cuts' only in '1D'
 NEmandatory = ('filename', 'assemblynames', 'rotation', 'energygrid', 'cuts')
 THmandatory = ('bcfile', 'massflowrate', 'temperature', 'rotation', 'pressure', 'bcnames', 'htdata')
 # TODO add check on data types (e.g., rotation and dim must be integers)
@@ -70,11 +70,8 @@ setToValue = {
                 "FRENETIC-NML": None
               }
 
-logging.basicConfig(filename="coreutils.log",
-                    filemode='a',
-                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 
 def parse(inp):
@@ -103,7 +100,7 @@ def parse(inp):
         List of TH module arguments.
     """
     if isinstance(inp, str) is False:
-        logging.critical("Input .json input file missing or not found!")
+        logger.critical("Input .json input file missing or not found!")
         raise ParserError("Input file path is missing!")
 
     # parse .json file
@@ -113,7 +110,7 @@ def parse(inp):
                 inp = json.load(f)
             except json.JSONDecodeError as err:
                 print(err.args[0])
-                logging.critical(err.args[0])
+                logger.critical(err.args[0])
                 raise ParserError(f"{err.args[0]} in {inp}")
     except FileNotFoundError:
         raise ParserError(f"File {inp} not found!")
@@ -145,7 +142,7 @@ def parse(inp):
 
         if 'TH' in inp.keys():
             if dim != 3:
-                logging.warning(f'cannot write TH input for {dim}-D core')
+                logger.warning(f'cannot write TH input for {dim}-D core')
             THargs = __parseTH(inp['TH'])
 
         if 'FRENETIC-NML' in inp.keys():
@@ -193,10 +190,10 @@ def __parseCI(inp):
 
     # check non-mandatory arguments
     if 'tEnd'.lower() not in inp.keys():
-        logging.info("No final simulation time is provided in CI!")
+        logger.info("No final simulation time is provided in CI!")
 
     if 'nSnap'.lower() not in inp.keys():
-        logging.info("No number of time profiles is provided in CI!")
+        logger.info("No number of time profiles is provided in CI!")
 
     # set missing (not mandatory) keys to default value
     for k, v in setToValue['CI'].items():
@@ -251,20 +248,21 @@ def __parseGE(inp):
 
     # check non-mandatory arguments
     if GEargs['dim'] != 1:
-        warn_keys = ["pin", "lattice", "assembly"]
+        warn_keys = ["pin", "lattice"]
         for k in warn_keys:
             if k.lower() not in inp.keys():
-                logging.info(f"No {k} info is provided in GE!")
+                logger.info(f"No {k} info is provided in GE!")
 
     # set missing (not mandatory) keys to default value
     for k, v in setToValue['GE'].items():
         if k.lower() not in GEargs.keys():
             GEargs[k.lower()] = v
 
-    if not os.path.isabs(GEargs['filename']):
-        p = str(Path(GEargs['filename']).resolve())
-        logging.warning(f'relative path {GEargs["filename"]} converted into absolute path {str(p)}')
-        GEargs['filename'] = p
+    if GEargs['dim'] != 1:
+        if not os.path.isabs(GEargs['filename']):
+            p = str(Path(GEargs['filename']).resolve())
+            logger.warning(f'relative path {GEargs["filename"]} converted into absolute path {str(p)}')
+            GEargs['filename'] = p
 
     return GEargs
 
@@ -330,7 +328,7 @@ def __parseNE(inp, dim):
     if dim != 1:
         if not os.path.isabs(NEargs['filename']):
             p = str(Path(NEargs['filename']).resolve())
-            logging.warning(f'relative path {NEargs["filename"]} converted into absolute path {str(p)}')
+            logger.warning(f'relative path {NEargs["filename"]} converted into absolute path {str(p)}')
             NEargs['filename'] = p
     return NEargs
 
@@ -408,12 +406,12 @@ def __parseTH(inp):
 
         if not os.path.isabs(htdata['filename']):
             p = str(Path(htdata['filename']).resolve())
-            logging.warning(f'relative path {htdata["filename"]} converted into absolute path {str(p)}')
+            logger.warning(f'relative path {htdata["filename"]} converted into absolute path {str(p)}')
             htdata['filename'] = p
 
         if not os.path.isabs(THargs['bcfile']):
             p = str(Path(THargs['bcfile']).resolve())
-            logging.warning(f'relative path {THargs["bcfile"]} converted into absolute path {str(p)}')
+            logger.warning(f'relative path {THargs["bcfile"]} converted into absolute path {str(p)}')
             THargs['bcfile'] = p
 
     return THargs
