@@ -846,17 +846,33 @@ class NE:
                                 strsplt = re.split(r"\d_", u0, maxsplit=1)
                                 NEty = strsplt[0]
                                 names = re.split(r"\+", strsplt[1])
-                                # parse weights
-                                w = np.zeros((len(names), ))
+                                # identify axial planes
+                                idx_coarse = self.AxialConfig.config_str[NEty].index(u0)
+                                z_coarse_lo = self.AxialConfig.zcuts[idx_coarse]
+                                z_coarse_up = self.AxialConfig.zcuts[idx_coarse + 1]
+                                # compute volumes
+                                V_heter = np.zeros((len(names), ))
+                                V_homog = np.zeros((len(names), ))
                                 for iM, mixname in enumerate(names):
-                                    idz = newaxregions_str.index(u0)
-                                    w[iM] = self.AxialConfig.cutsweights[NEty][f"M{iM+1}"][idz]
+                                    # fine region
+                                    idx_fine = self.AxialConfig.cuts[NEty].reg.index(mixname)
+                                    z_lo = self.AxialConfig.cuts[NEty].loz[idx_fine]
+                                    z_up = self.AxialConfig.cuts[NEty].upz[idx_fine]
+                                    V_heter[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_lo)
+                                    if z_lo >= z_coarse_lo and z_up <= z_coarse_up:
+                                        V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_lo)
+                                    elif z_lo >= z_coarse_lo and z_up > z_coarse_up:
+                                        V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_up-z_lo)
+                                    else:
+                                        raise NEerror(f"Error in homogenisation!")
+
                                 # perform homogenisation
                                 mat4hom = {}
                                 for name in names:
                                     mat4hom[name] = self.data[temp][name]
-                                weight4hom = dict(zip(names, w))
-                                tmp[u0] = Homogenise(mat4hom, weight4hom, u0, self.fixdata)
+                                vol4hom = {"homog": dict(zip(names, V_homog)), 
+                                        "heter": dict(zip(names, V_heter))}
+                                tmp[u0] = Homogenise(mat4hom, vol4hom, u0, self.fixdata)
 
                 # --- update info in object
                 if newtype not in self.assemblytypes.keys():
@@ -1239,17 +1255,33 @@ class NE:
                                 strsplt = re.split(r"\d: ", u0, maxsplit=1)
                                 NEty = strsplt[0].split(":n.")[0]
                                 names = re.split(r"\+", strsplt[1])
-                                # parse weights
-                                w = np.zeros((len(names), ))
+                                # identify axial planes
+                                idx_coarse = self.AxialConfig.config_str[NEty].index(u0)
+                                z_coarse_lo = self.AxialConfig.zcuts[idx_coarse]
+                                z_coarse_up = self.AxialConfig.zcuts[idx_coarse + 1]
+                                # compute volumes
+                                V_heter = np.zeros((len(names), ))
+                                V_homog = np.zeros((len(names), ))
                                 for iM, mixname in enumerate(names):
-                                    idz = newaxregions_str.index(u0)
-                                    w[iM] = self.AxialConfig.cutsweights[NEty][f"M{iM+1}"][idz]
+                                    # fine region
+                                    idx_fine = self.AxialConfig.cuts[NEty].reg.index(mixname)
+                                    z_lo = self.AxialConfig.cuts[NEty].loz[idx_fine]
+                                    z_up = self.AxialConfig.cuts[NEty].upz[idx_fine]
+                                    V_heter[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_lo)
+                                    if z_lo >= z_coarse_lo and z_up <= z_coarse_up:
+                                        V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_lo)
+                                    elif z_lo >= z_coarse_lo and z_up > z_coarse_up:
+                                        V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_up-z_lo)
+                                    else:
+                                        raise NEerror(f"Error in homogenisation!")
+
                                 # perform homogenisation
                                 mat4hom = {}
                                 for name in names:
                                     mat4hom[name] = self.data[temp][name]
-                                weight4hom = dict(zip(names, w))
-                                tmp[u0] = Homogenise(mat4hom, weight4hom, u0, self.fixdata)
+                                vol4hom = {"homog": dict(zip(names, V_homog)), 
+                                        "heter": dict(zip(names, V_heter))}
+                                tmp[u0] = Homogenise(mat4hom, vol4hom, u0, self.fixdata)
 
                     # --- update info in object
                     if newtype not in self.assemblytypes.keys():
@@ -1344,17 +1376,33 @@ class NE:
                             strsplt = re.split(r"\d: ", u0, maxsplit=1)
                             NEty = strsplt[0].split("_n.")[0]
                             names = re.split(r" \+ ", strsplt[1])
-                            # parse weights
-                            w = np.zeros((len(names), ))
+                            # identify axial planes
+                            idx_coarse = self.AxialConfig.config_str[NEty].index(u0)
+                            z_coarse_lo = self.AxialConfig.zcuts[idx_coarse]
+                            z_coarse_up = self.AxialConfig.zcuts[idx_coarse + 1]
+                            # compute volumes
+                            V_heter = np.zeros((len(names), ))
+                            V_homog = np.zeros((len(names), ))
                             for iM, mixname in enumerate(names):
-                                idx = self.AxialConfig.config_str[NEty].index(u0)
-                                w[iM] = self.AxialConfig.cutsweights[NEty][f"M{iM+1}"][idx]
+                                # fine region
+                                idx_fine = self.AxialConfig.cuts[NEty].reg.index(mixname)
+                                z_lo = self.AxialConfig.cuts[NEty].loz[idx_fine]
+                                z_up = self.AxialConfig.cuts[NEty].upz[idx_fine]
+                                V_heter[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_lo)
+                                if z_lo >= z_coarse_lo and z_up <= z_coarse_up:
+                                    V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_lo)
+                                elif z_lo >= z_coarse_lo and z_up > z_coarse_up:
+                                    V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_up-z_lo)
+                                else:
+                                    raise NEerror(f"Error in homogenisation!")
+
                             # perform homogenisation
                             mat4hom = {}
                             for name in names:
                                 mat4hom[name] = self.data[temp][name]
-                            weight4hom = dict(zip(names, w))
-                            tmp[u0] = Homogenise(mat4hom, weight4hom, u0, self.fixdata)
+                            vol4hom = {"homog": dict(zip(names, V_homog)), 
+                                      "heter": dict(zip(names, V_heter))}
+                            tmp[u0] = Homogenise(mat4hom, vol4hom, u0, self.fixdata)
 
     def get_energy_grid(self, NEargs):
         if 'egridname' in NEargs.keys():

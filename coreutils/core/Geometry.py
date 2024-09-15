@@ -346,7 +346,7 @@ class AssemblyGeometry:
             self.area = 1
             self.numedges = 2
         else:
-            raise GeometryError("Unknown type of geometry!")
+            raise GeometryError("Unknown geometry type!")
 
     def compute_volume(self, height):
         """Compute volume of the assembly slice.

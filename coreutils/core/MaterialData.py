@@ -16,6 +16,8 @@ from copy import deepcopy as copy
 from matplotlib import rc
 from os.path import join
 
+logger = logging.getLogger(__name__)
+
 usetex = True if sh.which('latex') else False
 
 rc("font", **{"family": "sans-serif", "sans-serif": ["Helvetica"]})
@@ -25,13 +27,12 @@ scatt_keys = [*list(map(lambda z: "infS"+str(z), range(2))),
             *list(map(lambda z: "infSp"+str(z), range(2)))]
 xsdf_keys = ['infTot', 'infAbs', 'infDiffcoef', 'infTranspxs', 'infCapt',
             'infRemxs', 'infFiss', 'infNsf', 'infRabsxs']
-ene_keys = ['infNubar', 'infInvv', 'infKappa', 'infInvv',  'infChit',
-            'infChip', 'infChid']
+ene_keys = ['infNubar', 'infInvv', 'infKappa',  'infChit', 'infChip', 'infChid']
 
 serp_keys = [*scatt_keys, *xsdf_keys, *ene_keys, 'infFlx']
 serp_phot_keys = ['KermaPh', 'Rayleigh', 'Compton', 'PProduction', 'Photoelectric', 'nuPh', 'TotPhProd']
 
-sumxs = ['Tot', 'Abs', 'Rem']
+sumxs = ['Tot', 'Abs', 'Rem', 'Rabs']
 indepdata = ['Capt', 'Fiss', 'S0', 'Nubar', 'Diffcoef', 'Chid', 'Chip']
 basicdata = ['Fiss', 'Nubar', 'S0', 'Sp0', 'Chit', 'Nsf']
 kinetics = ['lambda', 'beta']
@@ -43,7 +44,7 @@ collapse_xsf = ['Nubar', 'Chid', 'Chit', 'Chip', 'FissEn']
 
 units = {'Chid': '-', 'Chit': '-', 'Chip': '-', 'Tot': 'cm^{-1}',
         'Capt': 'cm^{-1}', 'Abs': 'cm^{-1}', 'Fiss': 'cm^{-1}',
-        'NuSf': 'cm^{-1}', 'Rem': 'cm^{-1}', 'Transpxs': 'cm^{-1}',
+        'NuSf': 'cm^{-1}', 'Rem': 'cm^{-1}', 'Transp': 'cm^{-1}',
         'FissEn': 'MeV', 'S': 'cm^{-1}', 'Nubar': '-', 'Invv': 's/cm',
         'Difflenght': 'cm', 'Diffcoef': 'cm', 'Flx': 'a.u.',
         'Kerma': 'J/cm'}
@@ -51,16 +52,10 @@ units = {'Chid': '-', 'Chit': '-', 'Chip': '-', 'Tot': 'cm^{-1}',
 xslabels = {'Chid': 'delayed fiss. emission spectrum', 'Chit': 'total fiss. emission spectrum',
             'Chip': 'prompt fiss. emission spectrum', 'Tot': 'Total xs',
             'Capt': 'Capture xs', 'Abs': 'Absorption xs', 'Fiss': 'Fission xs',
-            'NuSf': 'Fiss. production xs', 'Rem': 'Removal xs', 'Transpxs': 'Transport xs',
+            'NuSf': 'Fiss. production xs', 'Rem': 'Removal xs', 'Transp': 'Transport xs',
             'FissEn': 'Fiss. energy', 'S': 'Scattering xs', 'Nubar': 'neutrons by fission',
             'Invv': 'Inverse velocity', 'Difflenght': 'Diff. length', 'Diffcoef': 'Diff. coeff.',
             'Flx': 'Flux spectrum', 'Kerma': 'KERMA coefficient', 'Rabs': 'Reduced absorption'}
-
-logging.basicConfig(filename="coreutils.log",
-                    filemode='a',
-                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
 
 
 def readSerpentRes(datapath, energygrid, T, beginswith,
@@ -112,7 +107,7 @@ def readSerpentRes(datapath, energygrid, T, beginswith,
         if 'coreutils' not in str(pwd):
             raise OSError(f'Check coreutils tree for NEdata: {pwd}')
         # look into default NEdata dir
-        logging.warning(f"{datapath} not found, looking in default tree...")
+        logger.warning(f"{datapath} not found, looking in default tree...")
         datapath = str(pwd.joinpath('NEdata', f'{egridname}'))
 
     # look into serpent folder
@@ -129,7 +124,7 @@ def readSerpentRes(datapath, energygrid, T, beginswith,
             spath.join(spath, f"Tc_{Tc:g}_Tf_{Tf:g}")
     else:
         fname = path.join(spath, beginswith)    
-    
+
     if '_res.m' not in str(fname):
         basename = fname
         fname = f'{str(basename)}_res.m'
@@ -154,7 +149,7 @@ def readSerpentRes(datapath, energygrid, T, beginswith,
     return res, det
 
 
-def Homogenise(materials, weights, mixname, fixdata):
+def Homogenise(materials, volume, mixname, fixdata):
     """Homogenise multi-group parameters.
 
     Parameters
@@ -162,8 +157,8 @@ def Homogenise(materials, weights, mixname, fixdata):
     materials : dict
         Dict of ``NEMaterial`` objects to be mixed. The keys are the 
         name of the materials.
-    weights : dict
-        Dict containing the weights to mix material objects. The keys are the 
+    volume : dict
+        Dict containing the volume to mix material objects. The keys are the 
         name of the materials.
     mixname : str
         Name of the mixed material.
@@ -174,23 +169,32 @@ def Homogenise(materials, weights, mixname, fixdata):
         Object containing the homogenised material
     """
     collapse_xs = ['Fiss', 'Capt', *list(map(lambda z: "S"+str(z), range(2))),
-                    *list(map(lambda z: "Sp"+str(z), range(2))), 'Invv', 'Transpxs', 'Kerma']
+                    *list(map(lambda z: "Sp"+str(z), range(2))), 'Invv', 'Transp', 'Kerma']
     collapse_xsf = ['Nubar', 'Chid', 'Chit', 'Chip', 'FissEn']
     inherit = ['NPF', 'nE', 'egridname', 'beta', 'beta_tot', 'energygrid',
-               'lambda', 'lambda_tot', 'L', 'P1consistent']
+               'lambda', 'lambda_tot', 'L', 'P1consistent', 'use_nxn', 'scat_n1n_exists']
+
     # compute normalisation constants
     for i, name in enumerate(materials.keys()):
         mat = materials[name]
         if i == 0:
+            # instantiate new material
             homogmat = NEMaterial(init=True)
             setattr(homogmat, 'UniName', mixname)
+
             for attr in inherit:
                 setattr(homogmat, attr, getattr(mat, attr))
+
             G = homogmat.nE
             TOTFLX = np.zeros((G, ))
             FISSRR = np.zeros((G, ))
             FISPRD = np.zeros((G, ))
-        w = weights[name]
+
+        if mat.data_origin == 'Serpent':
+            w = volume['homog'][name]/volume['heter'][name]
+        else:
+            w = volume['homog'][name]
+
         TOTFLX += w*mat.Flx  # total flux
         FISSRR += w*mat.Flx*mat.Fiss  # fiss. reaction rate
         FISPRD += w*mat.Flx*mat.Fiss*mat.Nubar  # fiss. production
@@ -202,18 +206,24 @@ def Homogenise(materials, weights, mixname, fixdata):
         for i, name in enumerate(materials.keys()): # sum over sub-regions
             mat = materials[name].__dict__
             flx = materials[name].Flx
-            w = weights[name]
+
+            if materials[name].data_origin == 'Serpent':
+                w = volume['homog'][name]/volume['heter'][name]
+            else:
+                w = volume['homog'][name]
+
             # homogdata = np.dot(flux, data)/sum(flux)
             # --- cross section and inverse of velocity
             if key in collapse_xs:
-                if key in ["S1", "Sp0", "Sp1"]:
-                    if not hasattr(homogmat, key):
-                        continue
+                # if key in ["S1", "Sp0", "Sp1"]:
+                #     if not hasattr(homogmat, key):
+                #         continue
 
                 if i == 0:
                     homogmat.__dict__[key] = w*mat[key]*flx
                 else:
                     homogmat.__dict__[key] += w*mat[key]*flx
+
             elif key in collapse_xsf:
                 if mat['Fiss'].max() <= 0:
                     notfiss = True
@@ -320,7 +330,7 @@ class NEMaterial():
         1D array of length ``nE`` with the fission cross section in cm^-1.
     Rem: np.array
         1D array of length ``nE`` with the removal cross section in cm^-1.
-    Transpxs: np.array
+    Transp: np.array
         1D array of length ``nE`` with the transport cross section in cm^-1.
     NuSf: np.array
         1D array of length ``nE`` with the fission production cross section in cm^-1.
@@ -353,7 +363,8 @@ class NEMaterial():
     def __init__(self, UniName=None, energygrid=None, datapath=None,
                  egridname=None, h5file=None, reader='json', serpres=None,
                  serpdet=None, basename=False, temp=False, fixdata=True,
-                 init=False, energygridPH=None, P1consistent=False):
+                 init=False, energygridPH=None, use_nxn=False, P1consistent=False):
+
         if h5file:
             if isinstance(h5file, dict):
                 for k, v in h5file.items():
@@ -376,6 +387,7 @@ class NEMaterial():
             pwd = Path(__file__).parent
 
             if serpres is None:
+                self.data_origin = "serpent"
                 if datapath is None:
                     pwd = Path(__file__).parent.parent.parent
                     if 'coreutils' not in str(pwd):
@@ -400,9 +412,9 @@ class NEMaterial():
                         jpath = datapath
 
                     if '.json' not in str(filename):
-                        filename = f'{str(filename)}.{reader}'
+                        filename_ext = f'{str(filename)}.{reader}'
                     else:
-                        filename = filename
+                        filename_ext = filename
 
                     # check for temperatures
                     if temp:
@@ -414,7 +426,7 @@ class NEMaterial():
                         elif Path(path.join(jpath, dirTcTf)).exists():
                             jpath = path.join(jpath, dirTcTf)
 
-                    fname = path.join(jpath, filename)
+                    fname = path.join(jpath, filename_ext)
 
                     # if '.json' not in str(filename):
                     #     fname = f'{str(filename)}.{reader}'
@@ -423,11 +435,13 @@ class NEMaterial():
 
                     if Path(fname).exists():
                         self._readjson(fname)
+                        self.data_origin = "json"
                     else:
-                        logging.debug(f'{fname} not found!')
+                        logger.debug(f'{fname} not found!')
                         reader = 'txt'
 
                 if reader == 'txt':
+                    self.data_origin = "txt"
                     # look into txt folder
                     if Path(path.join(datapath, "txt")).exists():
                         tpath = path.join(datapath, "txt")
@@ -446,17 +460,18 @@ class NEMaterial():
                         fname = path.join(tpath, filename)
                     
                     if '.txt' not in str(fname):
-                        fname = f'{str(fname)}.{reader}'
+                        fname_ext = f'{str(fname)}.{reader}'
                     else:
-                        fname = filename
+                        fname_ext = filename
 
-                    fname = path.join(tpath, fname)
+                    fname = path.join(tpath, fname_ext)
                     if Path(fname).exists():
                         self._readtxt(fname, nE)
                     else:
                         raise OSError(f'{fname} not found!')
             else:
                 self._readserpentres(serpres, UniName, nE, egridname)
+                self.data_origin = "Serpent"
                 if energygridPH is None:
                     nEPH = 0
                 else:
@@ -475,11 +490,12 @@ class NEMaterial():
 
             self.UniName = UniName
             self.P1consistent = P1consistent
+            self.use_nxn = use_nxn
 
             try:
                 self.NPF = (self.beta).size
             except AttributeError:
-                logging.info('Kinetic parameters not available!')
+                logger.info('Kinetic parameters not available!')
                 self.NPF = 1
 
             # --- complete data and perform sanity check
@@ -570,12 +586,15 @@ class NEMaterial():
 
             if max_rsd*100 > 1:
                 g_max = np.argmax(rsd)
-                logging.warning(f'Serpent PRSD of {my_key} = {max_rsd*100:.1f} in group={g_max+1} in {UniName}.')
+                logger.warning(f'Serpent PRSD of {my_key} = {max_rsd*100:.1f} in group={g_max+1} in {UniName}.')
 
             if 'Kappa' in my_key:
                 selfdic['FissEn'] = vals
             else:
-                selfdic[my_key.split('inf')[1]] = vals
+                new_key = my_key.split('inf')[1]
+                if "xs" in new_key:
+                    new_key = new_key.split('xs')[0]
+                selfdic[new_key] = vals
 
         # kinetics parameters
         selfdic['beta'] = res.resdata['fwdAnaBetaZero'][::2]
@@ -627,7 +646,7 @@ class NEMaterial():
                 data = det_data.tallies
 
         if data is None:
-            logging.warning(f'{UniName} data not available in Serpent files!')
+            logger.warning(f'{UniName} data not available in Serpent files!')
         else:
             selfdic = self.__dict__
 
@@ -636,7 +655,7 @@ class NEMaterial():
 
             if rsd.max()*100 > 1:
                 g_max = np.argmax(rsd)
-                logging.warning(f'Serpent PRSD of kerma = {rsd.max()*100} in group={g_max+1} in {UniName}.')
+                logger.warning(f'Serpent PRSD of kerma = {rsd.max()*100} in group={g_max+1} in {UniName}.')
 
         # FIXME TODO work in progress
         if nEPH > 0:
@@ -658,11 +677,11 @@ class NEMaterial():
         Macro-group constants are parsed from a formatted file with column-wise
         data separated by headers beginning with "#" and the name of the data:
             * Tot: total cross section [cm^-1]
-            * Transpxs: transport cross section [cm^-1]
+            * Transp: transport cross section [cm^-1]
                         It is defined as total_xs-avg_direction*scattering_xs
                         according to P1 approximation.
             * Diffcoef: diffusion coefficient [cm]
-                        It is defined as 1/(3*Transpxs).
+                        It is defined as 1/(3*Transp).
             * Abs: absorption cross section [cm^-1]
                    It is the sum of Capt and Fiss cross sections.
             * Capt: capture cross section [cm^-1]
@@ -911,7 +930,7 @@ class NEMaterial():
                                            perturbation still missing!')
                     elif what == 'Diffcoef':
                         # Hp: change in diffcoef implies change in capture
-                        delta = 1/(3*mydic[what][g])-self.Transpxs[g]
+                        delta = 1/(3*mydic[what][g])-self.Transp[g]
                     elif what == 'S0':
                         # change higher moments, if any
                         for ll in range(self.L): # FIXME
@@ -949,41 +968,51 @@ class NEMaterial():
         """
         datadic = self.__dict__
         datavail = copy(list(datadic.keys()))
-        # --- compute in-group scattering
-        InScatt = np.diag(self.S0)
-        sTOT = self.S0.sum(axis=0) if len(self.S0.shape) > 1 else self.S0
-
-        self.Nsf = self.Fiss*self.Nubar
-
-        self.Abs = self.Fiss + self.Capt
-
-        self.Rem = self.Abs + sTOT - InScatt
-
-        self.Tot = self.Rem + InScatt
 
         # ensure non-zero total XS
         self.bad_data = False
         if np.count_nonzero(self.Tot) != self.Tot.shape[0]:
             self.bad_data = True
+            # ensure that capt matches tot where tot is zero
+            self.Capt[self.Tot <= 0] = 1E-5
+            # modify Tot accordingly
+            self.Tot[self.Tot <= 0] = 1E-5
 
-        self.Tot[self.Tot <= 0] = 1E-8
+        # TODO propose a quick fix for bad_data True
+        self.Nsf = self.Fiss*self.Nubar
+        self.Abs = self.Fiss + self.Capt
+        if np.count_nonzero(self.Abs == 0) > 0:
+            raise OSError
+
+        if self.use_nxn:
+            InScatt = np.diag(self.Sp0)
+            sTOT = self.Sp0.sum(axis=0) if len(self.Sp0.shape) > 1 else self.Sp0
+            sTOT1 = self.Sp1.sum(axis=0) if len(self.Sp1.shape) > 1 else self.Sp1
+            # if not np.array_equal(self.Rabs, self.Abs):
+            #     if min(self.Rabs) < 0:
+            #         self.Rabs = self.Abs
+            #     self.Capt = self.Rabs - self.Fiss
+        else:
+            InScatt = np.diag(self.S0)
+            sTOT = self.S0.sum(axis=0) if len(self.S0.shape) > 1 else self.S0
+            sTOT1 = self.S1.sum(axis=0) if len(self.S1.shape) > 1 else self.S1
 
         # --- compute diffusion coefficient and transport xs
         if self.P1consistent:
             # --- compute transport xs (derivation from P1)
-            self.Transpxs = self.Tot-self.S1.sum(axis=0)
-            self.Diffcoef = 1/(3*self.Transpxs)
+            self.Transp = self.Tot-sTOT1
+            self.Diffcoef = 1/(3*self.Transp)
         else:
-            self.Transpxs[self.Transpxs <= 1E-8] = 1E-8
-            self.Diffcoef = 1/(3*self.Transpxs)
+            self.Transp[self.Transp <= 1E-8] = 1E-8
+            self.Diffcoef = 1/(3*self.Transp)
 
-        self.Rem[self.Rem <= 0] = 1E-8 # avoid huge diff. coeff. and length
+        self.Rem = self.Tot - InScatt
 
         self.DiffLength = np.sqrt(self.Diffcoef / self.Rem)
 
         self.MeanFreePath = 1 / self.Tot.max()
 
-        self.Fiss[self.Fiss <= 5E-7] = 0
+        # self.Fiss[self.Fiss <= 5E-7] = 0
 
         isFiss = self.Fiss.max() > 0
 
@@ -1018,7 +1047,7 @@ class NEMaterial():
                         if abs(self.Chit[g]-chit) > 1E-3:
                             raise NEMaterialError()
                 except NEMaterialError:
-                    logging.warning(f'Fission spectra or delayed fractions'
+                    logger.warning(f'Fission spectra or delayed fractions'
                                     f' in {self.UniName} not consistent! '
                                     'Forcing consistency acting on chi-prompt...')
                 else:
@@ -1059,50 +1088,51 @@ class NEMaterial():
                 elif (s == 'S0' and 'Sp0' in datavail) or (s == 'Sp0' and 'S0' in datavail):
                     continue
                 else:
-                    raise OSError(f'{s} is missing in {self.UniName} data!')
+                    msg = f'{s} is missing in {self.UniName} data!'
+                    legger.error(msg)
+                    raise OSError(msg)
 
         # --- compute fission production cross section
         if hasattr(self, 'Nubar') and hasattr(self, 'Fiss'):
             if not hasattr(self, 'Nsf'):
                 self.Nsf = self.Fiss*self.Nubar
-                logging.warning(f"'Nsf' defined from available 'Nubar' and 'Fiss' for {self.UniName}.")
-
+                logger.warning(f"'Nsf' defined from available 'Nubar' and 'Fiss' for {self.UniName}.")
         elif hasattr(self, 'Nsf') and hasattr(self, 'Nubar'):
             if not hasattr(self, 'Fiss'):
                 if max(self.Nubar) > 0:
                     self.Fiss = self.Nsf / self.Nubar
-                    logging.warning(f"'Fiss' defined from available 'Nubar' and 'Nsf' for {self.UniName}.")
+                    logger.warning(f"'Fiss' defined from available 'Nubar' and 'Nsf' for {self.UniName}.")
                 else:
                     self.Fiss = np.zeros((nE, ))
-                    logging.warning(f"'Fiss' set to zero for {self.UniName}.")
-
+                    logger.warning(f"'Fiss' set to zero for {self.UniName}.")
         elif hasattr(self, 'Nsf') and hasattr(self, 'Fiss'):
             if not hasattr(self, 'Nubar'):
                 if min(self.Fiss) > 0: 
                     self.Nubar = self.Nsf / self.Fiss
-                    logging.warning(f"'Nubar' defined from available 'Nsf' and 'Fiss' for {self.UniName}.")
+                    logger.warning(f"'Nubar' defined from available 'Nsf' and 'Fiss' for {self.UniName}.")
                 else:
                     self.Nubar = self.Fiss
-                    logging.warning(f"'Nubar' set to zero for {self.UniName}.")
+                    logger.warning(f"'Nubar' set to zero for {self.UniName}.")
         else:
             raise OSError('To compute fission data at least two out of the three data "Nsf","Nubar" and "Fiss" are required')
 
         # --- add scattering matrices
         if not hasattr(self, 'Sp0'):
-            self.scat_nxn = 0
             self.Sp0 = self.S0
-            logging.warning(f"'Sp0' set equal to 'S0' for {self.UniName}.")
-        else:
-            self.scat_nxn = 1
+            logger.warning(f"'Sp0' set equal to 'S0' for {self.UniName}.")
+
+            if self.use_nxn:
+                self.use_nxn = False
+                logger.info(f"(n,xn) scattering reactions not considered for {self.UniName} since no Sp0 in input!")
 
         if not hasattr(self, 'S0'):
-            self.scat_n1n = 0
+            self.scat_n1n_exists = 0
             self.S0 = self.Sp0
-            logging.warning(f"'Sp0' set equal to 'S0' for {self.UniName}.")
+            logger.warning(f"'Sp0' set equal to 'S0' for {self.UniName}.")
         else:
-            self.scat_n1n = 1
+            self.scat_n1n_exists = 1
 
-        if self.scat_n1n:
+        if self.scat_n1n_exists:
             InScatt = np.diag(self.S0)
             sTOT = self.S0.sum(axis = 0) if len(self.S0.shape) > 1 else self.S0
 
@@ -1110,56 +1140,74 @@ class NEMaterial():
         if hasattr(self, 'Capt') and hasattr(self, 'Fiss'):
             if not hasattr(self, 'Abs'):
                 self.Abs = self.Fiss + self.Capt
-                logging.warning(f"'Abs' defined from available 'Fiss' and 'Capt' for {self.UniName}.")
+                logger.warning(f"'Abs' defined from available 'Fiss' and 'Capt' for {self.UniName}.")
 
         elif hasattr(self, 'Abs') and hasattr(self, 'Fiss'):
             if not hasattr(self, 'Capt'):
                 self.Capt = self.Abs - self.Fiss
-                logging.warning(f"'Capt' defined from available 'Fiss' and 'Abs' for {self.UniName}.")
+                logger.warning(f"'Capt' defined from available 'Fiss' and 'Abs' for {self.UniName}.")
 
         elif hasattr(self, 'Abs') and hasattr(self, 'Capt'):
             if not hasattr(self, 'Fiss'):
                 self.Fiss = self.Abs - self.Capt
-                logging.warning(f"'Fiss' defined from available 'Capt' and 'Abs' for {self.UniName}.")
+                logger.warning(f"'Fiss' defined from available 'Capt' and 'Abs' for {self.UniName}.")
 
         elif hasattr(self, 'Rabs') and hasattr(self, 'Fiss'):
             if not hasattr(self, 'Capt'):
                 self.Capt = self.Rabs - self.Fiss
-                logging.warning(f"'Capt' defined from available 'Fiss' and 'Rabs' for {self.UniName}.")
+                logger.warning(f"'Capt' defined from available 'Fiss' and 'Rabs' for {self.UniName}.")
 
         elif hasattr(self, 'Rabs') and hasattr(self, 'Capt'):
             if not hasattr(self, 'Fiss'):
                 self.Fiss = self.Rabs - self.Capt
-                logging.warning(f"'Fiss' defined from available 'Capt' and 'Rabs' for {self.UniName}.")
+                logger.warning(f"'Fiss' defined from available 'Capt' and 'Rabs' for {self.UniName}.")
+
+        elif hasattr(self, 'Rem') and hasattr(self, 'Fiss'):
+            if not hasattr(self, 'Abs'):
+                self.Abs = self.Rem - sTOT + InScatt
+                logger.warning(f"'Abs' defined from available 'Rem' and 'Fiss' for {self.UniName}.")
+
+            if not hasattr(self, 'Capt'):
+                self.Capt = self.Abs - self.Fiss
+                logger.warning(f"'Capt' defined from available 'Rem' and 'Fiss' for {self.UniName}.")
+
+        elif hasattr(self, 'Rem') and hasattr(self, 'Capt'):
+            if not hasattr(self, 'Abs'):
+                self.Abs = self.Rem - sTOT + InScatt
+                logger.warning(f"'Abs' defined from available 'Rem' and 'Fiss' for {self.UniName}.")
+
+            if not hasattr(self, 'Fiss'):
+                self.Fiss = self.Abs - self.Capt
+                logger.warning(f"'Fiss' defined from available 'Rem' and 'Capt' for {self.UniName}.")
 
         elif hasattr(self, 'Tot') and hasattr(self, 'Fiss'):
             if not hasattr(self, 'Capt'):
                 self.Capt = self.Tot - sTOT - self.Fiss
-                logging.warning(f"'Capt' defined from available 'Fiss' and 'Tot' for {self.UniName}.")
+                logger.warning(f"'Capt' defined from available 'Fiss' and 'Tot' for {self.UniName}.")
 
             if not hasattr(self, 'Abs'):
                 self.Abs = self.Fiss + self.Capt
-                logging.warning(f"'Abs' defined from available 'Capt' and 'Fiss' for {self.UniName}.")
+                logger.warning(f"'Abs' defined from available 'Capt' and 'Fiss' for {self.UniName}.")
 
         # --- add missing data
         if not hasattr(self, 'Rabs'):
             self.Rabs = self.Abs
-            logging.warning(f"'Rabs' set equal to 'Abs' for {self.UniName}.")
+            logger.warning(f"'Rabs' set equal to 'Abs' for {self.UniName}.")
 
         if not hasattr(self, 'Abs'):
             self.Abs = self.Rabs
-            logging.warning(f"'Abs' set equal to 'Rabs' for {self.UniName}.")
+            logger.warning(f"'Abs' set equal to 'Rabs' for {self.UniName}.")
 
         if not hasattr(self, 'Rem'):
-            if self.scat_n1n:
+            if self.scat_n1n_exists:
                 self.Rem = self.Abs + sTOT - InScatt
-                logging.warning(f"'Rem' defined from available 'Abs' and 'S0' for {self.UniName}.")
+                logger.warning(f"'Rem' defined from available 'Abs' and 'S0' for {self.UniName}.")
             else:
-                logging.warning(f"'Rem' not defined because 'S0' is missing for {self.UniName}.")
+                logger.warning(f"'Rem' not defined because 'S0' is missing for {self.UniName}.")
 
         if not hasattr(self, 'Tot'):
             self.Tot = self.Abs + sTOT
-            logging.warning(f"'Tot' defined from available 'Abs' and 'S0' for {self.UniName}.")
+            logger.warning(f"'Tot' defined from available 'Abs' and 'S0' for {self.UniName}.")
 
         # ensure non-zero total XS
         self.bad_data = False
@@ -1171,26 +1219,26 @@ class NEMaterial():
                 avgE = 1/2*(E[:-1]+E[1:])*1.602176634E-13  # J
                 v = np.sqrt(2*avgE/1.674927351e-27)
                 self.Invv = 1/(v*100)  # s/cm
-                logging.warning(f"'Invv' defined from the average kinetic energy in group g for {self.UniName}.")
+                logger.warning(f"'Invv' defined from the average kinetic energy in group g for {self.UniName}.")
 
         # --- compute diffusion coefficient and transport xs
-        if not hasattr(self, 'Transpxs'):
+        if not hasattr(self, 'Transp'):
             if hasattr(self, 'Diffcoef'):
-                self.Transpxs = 1/(3*self.Diffcoef)
-                logging.warning(f"'Transpxs' defined from available 'Diffcoef' for {self.UniName}.")
+                self.Transp = 1/(3*self.Diffcoef)
+                logger.warning(f"'Transp' defined from available 'Diffcoef' for {self.UniName}.")
 
             else:
                 if hasattr(self, 'S1') and self.P1consistent:
-                    self.Transpxs = self.Tot-self.S1.sum(axis=0)
-                    logging.warning(f"'Transpxs' defined from available 'Tot' and 'S1' for {self.UniName}.")
+                    self.Transp = self.Tot-self.S1.sum(axis=0)
+                    logger.warning(f"'Transp' defined from available 'Tot' and 'S1' for {self.UniName}.")
 
                 else:
                     # assuming isotropic scattering
-                    self.Transpxs = self.Tot
-                    logging.warning(f"'Transpxs' defined from available 'Diffcoef' for {self.UniName}.")
+                    self.Transp = self.Tot
+                    logger.warning(f"'Transp' defined from available 'Diffcoef' for {self.UniName}.")
 
         if not hasattr(self, 'Diffcoef'):
-            self.Diffcoef = 1/(3*self.Transpxs)
+            self.Diffcoef = 1/(3*self.Transp)
 
         # --- compute diffusion length
         if not hasattr(self, 'DiffLength'):
@@ -1377,7 +1425,7 @@ class NEMaterial():
 
                     if len(dims) == 1:
                         if key == 'Diffcoef':
-                            v = self.Transpxs
+                            v = self.Transp
                             v = 1/3/v
                         collapsed[key][g] = np.divide(flx[iS:iE].dot(v[iS:iE]), NC, where=NC!=0)
                     else:
@@ -1423,7 +1471,7 @@ class NEMaterial():
 
             iS = iE
 
-        collapsed['Transpxs'] = 1/(3*collapsed['Diffcoef'])
+        collapsed['Transp'] = 1/(3*collapsed['Diffcoef'])
         self.P1consistent = False # to "preserve" diffcoef
         # overwrite data
         self.fine_energygrid = self.energygrid+0
