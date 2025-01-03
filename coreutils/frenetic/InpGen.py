@@ -1,15 +1,19 @@
 import io
 import os
+import json
 import logging
-from pathlib import Path
 import tempfile
 import numpy as np
+import matplotlib.pyplot as plt
+from pathlib import Path
 from os.path import join
 from shutil import move, copyfile, SameFileError, rmtree
 from coreutils.tools.utils import fortranformatter as ff
 from coreutils.tools.properties import *
+from coreutils.tools.utils import InputGeneratorError, fortranformatter
+from coreutils.frenetic.FreneticInput import FreneticInput
+
 from coreutils.tools.plot import RadialMap, AxialGeomPlot, SlabPlot
-import matplotlib.pyplot as plt
 from .InpTH import writeHTdata, writeBCdata, makeTHinput
 from .InpNE import writeConfig, makeNEinput, writemacro, writeNEdata
 import coreutils.tools.h5 as myh5
@@ -22,14 +26,11 @@ except ImportError:
     import importlib_resources as pkg_resources
 
 np.seterr(invalid='ignore')
+logger = logging.getLogger(__name__)
+
 logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
 figfmt = ['png']
 
-logging.basicConfig(filename="coreutils.log",
-                    filemode='a',
-                    format='%(asctime)s %(levelname)s  %(funcName)s: %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
 
 def fillFreneticNamelist(core):
     """Fill FRENETIC kw dict with missing data, ensuring their consistency.
@@ -64,7 +65,7 @@ def fillFreneticNamelist(core):
         except AttributeError:
             nDiff = len(core.NE.assemblytypes)
             # FIXME FIXME
-            # logging.warn('nDiff variable set equal to the number of NE assemblies')
+            # logger.warn('nDiff variable set equal to the number of NE assemblies')
 
     except AttributeError as err:
         if "object has no attribute 'Map'" in str(err):  # assume 1D core
@@ -72,7 +73,7 @@ def fillFreneticNamelist(core):
             N = 1
             pitch = core.Geometry.AssemblyGeometry.pitch
         else:
-            logging.error(err)
+            logger.error(err)
 
     isSym = core.FreneticNamelist['isSym']
     core.FreneticNamelist['nChan'] = int(nH/6*isSym+1) if isSym else nH
@@ -82,10 +83,14 @@ def fillFreneticNamelist(core):
     core.FreneticNamelist['HexPitch'] = pitch/100
     core.FreneticNamelist['iTyCool'] = core.coolant
     lexag = np.nan
-    for latname, lat in core.Geometry.LatticeGeometry.items():
-        if lat.wrapWidth > 0 and lat.nPins > 0:
-            lexag = (pitch-2*lat.wrapWidth-2*lat.interassWidth)/3**0.5
-            break
+    if core.dim != 1:
+        for latname, lat in core.Geometry.LatticeGeometry.items():
+            if lat.wrapWidth > 0 and lat.nPins > 0:
+                lexag = (pitch-2*lat.wrapWidth-2*lat.interassWidth)/3**0.5
+                break
+        if np.isnan(lexag):
+            lexag = 0.001
+
     core.FreneticNamelist['LeXag'] = lexag/100 if core.dim != 1 else 0.001
     if np.isnan(core.FreneticNamelist['isNETH']):
         core.FreneticNamelist['isNETH'] = 2 if hasattr(core, "NE") and hasattr(core, "TH") and core.dim == 3 else 0
@@ -168,7 +173,7 @@ def fillFreneticNamelist(core):
             core.FreneticNamelist['nTimeProfTH'] = len(core.FreneticNamelist['TimeProfTH'])
 
         # smart initialisation
-        if np.isnan(core.FreneticNamelist['temIni']):
+        if np.isnan(core.FreneticNamelist['initTemp']):
             # get average heat in each HA
             nFissHA = len(core.NE.get_fissile_SA(core, t=0))
             qHA = core.power/nFissHA
@@ -192,9 +197,9 @@ def fillFreneticNamelist(core):
             dT = np.divide(qHA, mdot, out=np.zeros_like(mdot), where=mdot!=0)/cp
             Tout = Tinl+dT
             if (Tout-Tinl).max() < 0.5:
-                logging.warning("Input power may be too small to heat the coolant!")
+                logger.warning("Input power may be too small to heat the coolant!")
             # Pinl = rho*9.81*h+Pout
-            core.FreneticNamelist['temIni'] = (Tinl+Tout)/2
+            core.FreneticNamelist['initTemp'] = (Tinl+Tout)/2
 
         #  assign THdata in ad hoc keys
         iType = 1
@@ -214,69 +219,69 @@ def fillFreneticNamelist(core):
             isHomog = len(pin.materials) < 3
             n = 2 if pin.isAnnular else 1
 
-            HAdict['iRadHom'] = 1 if isHomog else 0
-            HAdict['nFuelX'] = lattice.nPins
+            HAdict['flagRadHomog'] = 1 if isHomog else 0
+            HAdict['nFuelPin'] = lattice.nPins
             # FIXME TODO how to account for these? Maybe better to distinguish fissile-nonfissile
-            HAdict['nNonHeatedX'] = 0
+            HAdict['nNonHeatedPin'] = 0
 
             # --- geometry
-            HAdict['dFuelX'] = 2*pin.radii.max()/100 # the name should be dPinX
-            HAdict['dFuelInX'] = 2*pin.radii[0]/100 if pin.isAnnular else 0.
+            HAdict['diamFuelPin'] = 2*pin.radii.max()/100 # the name should be dPinX
+            HAdict['diamFuelPinIn'] = 2*pin.radii[0]/100 if pin.isAnnular else 0.
             # FIXME TODO how to account for these? Maybe better to distinguish fissile-nonfissile
-            HAdict['dFuelNfX'] = 0.
+            HAdict['diamNonHeatedPin'] = 0.
 
             if isHomog:
-                HAdict['ThickGasX'] = 0.
-                HAdict['RCoX'] = pin.radii.max()/100
-                HAdict['RCiX'] = pin.radii.max()/100
+                HAdict['thickGasGap'] = 0.
+                HAdict['radOutClad'] = pin.radii.max()/100
+                HAdict['radInnClad'] = pin.radii.max()/100
             else:
-                HAdict['ThickGasX'] = (pin.radii[n]-pin.radii[n-1])/100
+                HAdict['thickGasGap'] = (pin.radii[n]-pin.radii[n-1])/100
                 n += 1
-                HAdict['RCoX'] = pin.radii[n]/100
-                HAdict['RCiX'] = pin.radii[n-1]/100
+                HAdict['radOutClad'] = pin.radii[n]/100
+                HAdict['radInnClad'] = pin.radii[n-1]/100
 
             if hasattr(lattice, 'wrapWidth'):
-                HAdict['ThickBoxX'] = lattice.wrapWidth/100
-                HAdict['ThickClearX'] = lattice.interassWidth/100
+                HAdict['thickBiB'] = lattice.wrapWidth/100
+                HAdict['thickChanClear'] = lattice.interassWidth/100
             else:
-                HAdict['ThickBoxX'] = 0.
-                HAdict['ThickClearX'] = 1E-6
+                HAdict['thickBiB'] = 0.
+                HAdict['thickChanClear'] = 1E-6
 
             # FIXME TODO
-            HAdict['InBoxInsideX'] = 0.
-            HAdict['InBoxOutsideX'] = 0.
+            HAdict['lengthInBiB'] = 0.
+            HAdict['lengthOutBiB'] = 0.
 
             # FIXME TODO
-            HAdict['dWireX'] = 0.
-            HAdict['pWireX'] = 0.
+            HAdict['diamWire'] = 0.
+            HAdict['pitchWire'] = 0.
 
-            HAdict['PtoPDistX'] = lattice.pitch/100. # to ensure it is float
+            HAdict['pitchPin'] = lattice.pitch/100. # to ensure it is float
 
             # FIXME TODO
-            HAdict['iBiBX'] = 0
-            HAdict['iCRadX'] = 1 if pin.isAnnular else 0
+            HAdict['flagBiB'] = 0
+            HAdict['pinGeomType'] = 1 if pin.isAnnular else 0
             # correlations
-            HAdict['FPeakX'] = float(HTdata.frictMult)
-            HAdict['QBoxX'] = float(HTdata.htcMult)
-            HAdict['iHpbPinX'] = HTdata.htcCorr
-            HAdict['iTyFrictX'] = HTdata.frictCorr
-            HAdict['iChCouplX'] = HTdata.chanCouplCorr
+            HAdict['FrictPeakFact'] = float(HTdata.frictMult)
+            HAdict['htcMultFact'] = float(HTdata.htcMult)
+            HAdict['htcCorrType'] = HTdata.htcCorr
+            HAdict['frictCorrType'] = HTdata.frictCorr
+            HAdict['chanCouplingType'] = HTdata.chanCouplCorr
 
             # TODO TODO material
-            HAdict['iFuelX'] = pin.materials[1] if pin.isAnnular else pin.materials[0]
+            HAdict['FuelMat'] = pin.materials[1] if pin.isAnnular else pin.materials[0]
             HAdict['NonFuelMat'] = "Default"
 
             if isHomog:
-                HAdict['iGapX'] = "Default"
-                HAdict['iCladX'] = "Default"
+                HAdict['GapMat'] = "Default"
+                HAdict['CladMat'] = "Default"
             else:
-                HAdict['iGapX'] = pin.materials[2] if pin.isAnnular else pin.materials[1]
-                HAdict['iCladX'] = pin.materials[3] if pin.isAnnular else pin.materials[2]
+                HAdict['GapMat'] = pin.materials[2] if pin.isAnnular else pin.materials[1]
+                HAdict['CladMat'] = pin.materials[3] if pin.isAnnular else pin.materials[2]
 
             if lattice.wrapMat is not None:
-                HAdict['BoxMatX'] = lattice.wrapMat
+                HAdict['BiBMat'] = lattice.wrapMat
             else:
-                HAdict['BoxMatX'] = "Default"
+                HAdict['BiBMat'] = "Default"
 
             # FIXME the radial nodes subdivision is currently fixed here.
             # The user should have the possibility to choose it, but how
@@ -286,26 +291,26 @@ def fillFreneticNamelist(core):
                 matlst[1] = 2
                 matlst[2] = 3
 
-            HAdict['MaterHX'] = matlst
-            HAdict['HeatGhX'] = [1, 0, 0]
+            HAdict['RadMatInd'] = matlst
+            HAdict['RadHeatInd'] = [1, 0, 0]
             HAdict['iMatX'] = 1. # FIXME hardcoded value
             iType += 1
 
-        eraseKeys = ["iHA", "nFuelX", "nNonHeatedX", "iFuelX", "dFuelX",
-                     "dFuelInX", "ThickBoxX", "ThickClearX", "FPeakX", "QBoxX", "BoxMatX", 
-                     "iHpbPinX", "iTyFrictX", "iChCouplX", "iRadHom", "RCoX", "RCiX", "ThickGasX",
-                     "InBoxInsideX", "InBoxOutsideX", "dWireX", "pWireX", "dFuelNfX", "PtoPDistX", 
-                     "iCRadX", "NonFuelMat", "iCladX", "iGapX", "MaterHX", "HeatGhX"]
+        eraseKeys = ["iHA", "nFuelPin", "nNonHeatedPin", "FuelMat", "diamFuelPin",
+                     "diamFuelPinIn", "thickBiB", "thickChanClear", "FrictPeakFact", "htcMultFact", "BiBMat", 
+                     "htcCorrType", "frictCorrType", "chanCouplingType", "flagRadHomog", "radOutClad", "radInnClad", "thickGasGap",
+                     "lengthInBiB", "lengthOutBiB", "diamWire", "pitchWire", "diamNonHeatedPin", "pitchPin", 
+                     "pinGeomType", "NonFuelMat", "CladMat", "GapMat", "RadMatInd", "RadHeatInd"]
         for key in eraseKeys:
             core.FreneticNamelist.pop(key)
     else:
-        setToValue = ["iHA", "nFuelX", "nNonHeatedX", "iFuelX", "dFuelX", 'temIni',
-                      "dFuelInX", "ThickBoxX", "ThickClearX", "FPeakX", "QBoxX", "iCRadX",
-                      "BoxMatX", "iHpbPinX", "iTyFrictX", "iChCouplX", "iRadHom", "RCoX", "RCiX", 
-                      "ThickGasX", "dFuelNfX", "PtoPDistX", "iCRadX" "NonFuelMat" "iCladX" "iGapX" "MaterHX",
-                      "HeatGhX", "InBoxInsideX", "InBoxOutsideX", "dWireX", "pWireX", "PtoPDistX", 
-                      "nElems", "xLengt", "NonFuelMat", "iCladX", "iGapX", "zLayer", "nLayer", "TimeProfTH",
-                      "nTimeProfTH", "iMatX", "MaterHX", "HeatGhX"]
+        setToValue = ["iHA", "nFuelPin", "nNonHeatedPin", "FuelMat", "diamFuelPin", 'initTemp',
+                      "diamFuelPinIn", "thickBiB", "thickChanClear", "FrictPeakFact", "htcMultFact", "pinGeomType",
+                      "BiBMat", "htcCorrType", "frictCorrType", "chanCouplingType", "flagRadHomog", "radOutClad", "radInnClad", 
+                      "thickGasGap", "diamNonHeatedPin", "pitchPin", "pinGeomType" "NonFuelMat" "CladMat" "GapMat" "RadMatInd",
+                      "RadHeatInd", "lengthInBiB", "lengthOutBiB", "diamWire", "pitchWire", "pitchPin", 
+                      "nElems", "xLengt", "NonFuelMat", "CladMat", "GapMat", "zLayer", "nLayer", "TimeProfTH",
+                      "nTimeProfTH", "iMatX", "RadMatInd", "RadHeatInd"]
         for key in setToValue:
             core.FreneticNamelist[key] = -1
 
@@ -355,7 +360,7 @@ def fillFreneticNamelist(core):
     return frnnml_full
 
 
-def inpgen(core, json):
+def inpgen(core, jsonpath):
     """
     Make FRENETIC NE/TH files if the required data are in core object.
 
@@ -363,30 +368,31 @@ def inpgen(core, json):
     ----------
     core : :class:`coreutils.core.Core`
         Core object created with Core class.
-    json : str
+    jsonpath : str
         Absolute path of the ``.json`` input file.
 
     Returns
     -------
     ``None``
     """
-    logging.info(f"{''.join(['-']*50)}")
-    logging.info("Preparing FRENETIC input case")
-    logging.info(f"{''.join(['-']*50)}")
+    # --- Prepare FRENETIC input case tree
+    logger.info(f"{''.join(['-']*50)}")
+    logger.info("Preparing FRENETIC input case")
+    logger.info(f"{''.join(['-']*50)}")
 
-    iwd = Path(os.path.dirname(json))
+    iwd = Path(os.path.dirname(jsonpath))
 
     # generate case directory-tree
-    if '.json' not in json:
-        json = f"{json}.json"
+    if '.json' not in jsonpath:
+        jsonpath = f"{jsonpath}.json"
 
-    json = Path(json)
-    casename = json.stem
+    jsonpath = Path(jsonpath)
+    casename = jsonpath.stem
 
     # create temporary directory
     tempfile.tempdir = Path(iwd)
     tmp_dirname = tempfile.mkdtemp(prefix=f"tmp_",suffix=f"_{casename}")
-    logging.info(f"Storing FRENETIC input in temporary directory -> {tmp_dirname}")
+    logger.info(f"Storing FRENETIC input in temporary directory -> {tmp_dirname}")
 
     if not iwd.exists():
         raise OSError(f'{str(iwd)} path does not exist!')
@@ -404,11 +410,11 @@ def inpgen(core, json):
 
     # --- echoing json to root directory
     try:
-        copyfile(f'{json}', join(AUXpath, f'{json.name}'))
+        copyfile(f'{jsonpath}', join(AUXpath, f'{jsonpath.name}'))
     except SameFileError:
-        os.remove(join(tmp_casepath, f'{json.name}'))
-        logging.warning(f'Overwriting file {json.name}')
-        copyfile(f'{json}', join(AUXpath, f'{json.name}'))
+        os.remove(join(tmp_casepath, f'{jsonpath.name}'))
+        logger.warning(f'Overwriting file {jsonpath.name}')
+        copyfile(f'{json}', join(AUXpath, f'{jsonpath.name}'))
 
     # --- save core object
     corefname = 'core.h5'
@@ -436,7 +442,7 @@ def inpgen(core, json):
         makeNEinput(core, NEpath)
 
     else:
-        logging.warn('No NE object: input.inp and config.inp not written!')
+        logger.warn('No NE object: input.inp and config.inp not written!')
 
     # write NE data
     if hasattr(core.NE, 'data') or isNE1D:
@@ -452,7 +458,14 @@ def inpgen(core, json):
         NGRO = core.NE.nGro
         NPRE = core.NE.nPre
         # --- get kinetic parameters (equal for each material)
-        mat0 = core.NE.data[temp[0]][core.NE.regions[1]]
+        for iReg in core.NE.regions.keys():
+            mat0 = core.NE.data[temp[0]][core.NE.regions[iReg]]
+            if mat0.isfiss():
+                break
+
+        if not mat0.isfiss():
+            raise OSError("U should not be here!")
+
         vel = 1/mat0.Invv
         if core.NE.NEdata["nPrec"] is None:
             beta0 = mat0.beta
@@ -470,7 +483,7 @@ def inpgen(core, json):
         writeNEdata(core, NEpath, verbose=False, H5fmt=2, txt=0)
 
     else:
-        logging.warn('macro.nml and NE_data.h5 not written!')
+        logger.warn('macro.nml and NE_data.h5 not written!')
 
     TH = True if hasattr(core, "TH") else False
 
@@ -499,7 +512,7 @@ def inpgen(core, json):
     new_case_path = iwd.joinpath(casename)
     if new_case_path.exists():
         rmtree(new_case_path)
-        logging.warning(f'Overwriting {str(new_case_path)}')
+        logger.warning(f'Overwriting {str(new_case_path)}')
 
     move(tmp_casepath, new_case_path)
 
@@ -612,7 +625,7 @@ def auxNE(core, AUXpathNE):
 
                             if "labels" in conf:
                                 if len(whichSA) != len(conf["labels"]):
-                                    logging.warning("plot: label numbers do not match with whichSA key!")
+                                    logger.warning("plot: label numbers do not match with whichSA key!")
                                 else:
                                     labeldict = {}
                                     for i, l in enumerate(conf["labels"]):
@@ -627,7 +640,7 @@ def auxNE(core, AUXpathNE):
 
     # --- plot core axial configurations
     if core.NE.plot['axplot']:
-        if core.dim != 2:
+        if core.dim == 3:
             x0 = []
             y0 = []
             sextI = []
@@ -756,7 +769,7 @@ def auxTH(core, AUXpathTH):
             move(f, join(AUXpathTH, f))
         except SameFileError:
             os.remove(join(AUXpathTH, f))
-            logging.warning('Overwriting file {}'.format(f))
+            logger.warning('Overwriting file {}'.format(f))
             move(f, join(AUXpathTH, f))
 
 
@@ -778,7 +791,7 @@ def makecommoninput(core, path):
 
     if filepath.exists():
         os.remove(str(filepath))
-        logging.warning(f'Overwriting file {str(filepath)}')
+        logger.warning(f'Overwriting file {str(filepath)}')
 
     f = io.open(filepath, 'w', newline='\n')
     isSym = core.FreneticNamelist["PRELIMINARY"]['isSym']
@@ -787,7 +800,7 @@ def makecommoninput(core, path):
         f.write(f"&{namelist}\n")
         for key, val in core.FreneticNamelist[namelist].items():
             # format value with FortranFormatter utility
-            val = ff(val)
+            val = fortranformatter(val)
             # "vectorise" in Fortran input if needed
             if key in frnnml.vector_inp:
                 val = f"{N}*{val}"
@@ -832,3 +845,5 @@ def mkdir(dirname, indirs=None):
     os.makedirs((path), exist_ok=True)
 
     return Path(path)
+
+
