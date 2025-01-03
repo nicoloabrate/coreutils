@@ -1,9 +1,11 @@
 import io
+import logging
 import numpy as np
 from shutil import rmtree
 from coreutils.tools.utils import fortranformatter as ff
 from coreutils.frenetic.frenetic_namelists import FreneticNamelist, FreneticNamelistError
 
+logger = logging.getLogger(__name__)
 
 def writeBCdata(core, path):
     """
@@ -32,7 +34,7 @@ def writeBCdata(core, path):
         filepath = path.joinpath(inpname)
         if filepath.exists():
             rmtree(filepath)
-            logging.warning(f'Overwriting file {inpname}')
+            logger.warning(f'Overwriting file {inpname}')
 
         f = io.open(filepath, 'w', newline='\n')
 
@@ -69,7 +71,7 @@ def makeTHinput(core, path):
     filepath = path.joinpath(inpname)
     if filepath.exists():
         rmtree(filepath)
-        logging.warning(f'Overwriting file {inpname}')
+        logger.warning(f'Overwriting file {inpname}')
 
     f = io.open(filepath, 'w', newline='\n')
     for namelist in frnnml.files["THinput.inp"]:
@@ -105,7 +107,7 @@ def writeHTdata(core, path):
     """
     frnnml = FreneticNamelist()
     # FIXME this is a patch, in the future the user should choose these values
-    nRadNode = core.FreneticNamelist["ADDTH"]["MaxNRadNode"]-2
+    nRadNode = core.FreneticNamelist["NUMERICS0"]["MaxNRadNode"]-2
     isSym = core.FreneticNamelist['PRELIMINARY']['isSym']
     nr = [int(nRadNode*0.6), int(nRadNode*0.2), int(nRadNode*0.2)]
     N = int(core.nAss/6*isSym+1) if isSym else core.nAss
@@ -116,7 +118,7 @@ def writeHTdata(core, path):
             filepath = path.joinpath(inpname)
             if filepath.exists():
                 rmtree(filepath)
-                logging.warning(f'Overwriting file {inpname}')
+                logger.warning(f'Overwriting file {inpname}')
 
             f = io.open(filepath, 'w', newline='\n')
 
@@ -124,7 +126,7 @@ def writeHTdata(core, path):
                 f.write(f"&{namelist}\n")
                 for key, val in core.FreneticNamelist[f"HAType{nType}"][namelist].items():
                     # format value with FortranFormatter utility
-                    if key in ['MaterHX', 'HeatGhX']:
+                    if key in ['RadMatInd', 'RadHeatInd']:
                         val = ff(val, nr)
                     else:
                         val = ff(val)

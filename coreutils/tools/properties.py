@@ -1,3 +1,7 @@
+import logging
+logger = logging.getLogger(__name__)
+
+
 class LeadProp():
     """Lead thermo-physical properties, provided by:
     `Handbook on Lead-bismuth Eutectic Alloy and Lead Properties, Materials
@@ -44,7 +48,7 @@ class LeadProp():
         E = 1.524E+06
         Tlim = 1300
         if max(T) > Tlim:
-            logging.info(f"Inlet T > {Tlim} K, out of specific heat correlation range!")
+            logger.info(f"Inlet T > {Tlim} K, out of specific heat correlation range!")
         return A-B*T+C*(T**2)-D*(T**3)-E*(T**(-2))
     
     @staticmethod
@@ -65,7 +69,7 @@ class LeadProp():
         B = 1.1E-02
         Tlim = 1300
         if T > Tlim:
-            logging.info(f"Inlet T > {Tlim} K, out of specific heat correlation range!")
+            logger.info(f"Inlet T > {Tlim} K, out of specific heat correlation range!")
         return A+B*T
 
     @staticmethod
@@ -86,7 +90,7 @@ class LeadProp():
         B = 1.069E+03
         Tlim = 1470
         if T > Tlim:
-            logging.info(f"Inlet T > {Tlim} K, out of specific heat correlation range!")
+            logger.info(f"Inlet T > {Tlim} K, out of specific heat correlation range!")
         return A*exp(B/T)
 
     @staticmethod
