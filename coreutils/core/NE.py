@@ -863,8 +863,10 @@ class NE:
                                         V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_lo)
                                     elif z_lo >= z_coarse_lo and z_up > z_coarse_up:
                                         V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_up-z_lo)
+                                    elif z_lo <= z_coarse_lo and z_up <= z_coarse_up:
+                                        V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_lo-z_up)
                                     else:
-                                        raise NEerror(f"Error in homogenisation!")
+                                        raise NEError(f"Error in homogenisation!")
 
                                 # perform homogenisation
                                 mat4hom = {}
@@ -1179,7 +1181,7 @@ class NE:
                         oldtype = atype
                     else:
                         newtype = f"{atype}-{iT}{action}"
-                        oldtype = newtype
+                        oldtype = atype
 
                     # --- define new cuts
                     if newtype not in self.AxialConfig.cuts.keys():
@@ -1247,6 +1249,13 @@ class NE:
                                     nMIX = str2int[r]
                                 newaxregions[jReg] = nMIX
                                 newaxregions_str[jReg] = r
+
+                        # --- update info in object
+                        self.assemblytypes.update({nTypes+1: newtype})
+                        self.assemblylabel.update({nTypes+1: newtype})
+                        self.AxialConfig.config.update({nTypes+1: newaxregions})
+                        self.AxialConfig.config_str.update({newtype: newaxregions_str})
+
                         # --- homogenise
                         for temp in core.TfTc:
                             tmp = self.data[temp]  
@@ -1255,7 +1264,7 @@ class NE:
                                 strsplt = re.split(r"\d: ", u0, maxsplit=1)
                                 NEty = strsplt[0].split(":n.")[0]
                                 names = re.split(r"\+", strsplt[1])
-                                # identify axial planes
+                                # identify axial planes for homogenisation
                                 idx_coarse = self.AxialConfig.config_str[NEty].index(u0)
                                 z_coarse_lo = self.AxialConfig.zcuts[idx_coarse]
                                 z_coarse_up = self.AxialConfig.zcuts[idx_coarse + 1]
@@ -1272,8 +1281,10 @@ class NE:
                                         V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_lo)
                                     elif z_lo >= z_coarse_lo and z_up > z_coarse_up:
                                         V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_up-z_lo)
+                                    elif z_lo <= z_coarse_lo and z_up <= z_coarse_up:
+                                        V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_lo-z_up)
                                     else:
-                                        raise NEerror(f"Error in homogenisation!")
+                                        raise NEError(f"Error in homogenisation!")
 
                                 # perform homogenisation
                                 mat4hom = {}
@@ -1283,12 +1294,12 @@ class NE:
                                         "heter": dict(zip(names, V_heter))}
                                 tmp[u0] = Homogenise(mat4hom, vol4hom, u0, self.fixdata)
 
-                    # --- update info in object
-                    if newtype not in self.assemblytypes.keys():
-                        self.assemblytypes.update({nTypes+1: newtype})
-                        self.assemblylabel.update({nTypes+1: newtype})
-                        self.AxialConfig.config.update({nTypes+1: newaxregions})
-                        self.AxialConfig.config_str.update({newtype: newaxregions_str})
+                    # # --- update info in object
+                    # if newtype not in self.assemblytypes.keys():
+                    #     self.assemblytypes.update({nTypes+1: newtype})
+                    #     self.assemblylabel.update({nTypes+1: newtype})
+                    #     self.AxialConfig.config.update({nTypes+1: newaxregions})
+                    #     self.AxialConfig.config_str.update({newtype: newaxregions_str})
                     # --- replace assembly
                     if not isinstance(assbly, list):
                         assbly = [assbly]
@@ -1393,8 +1404,12 @@ class NE:
                                     V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_lo)
                                 elif z_lo >= z_coarse_lo and z_up > z_coarse_up:
                                     V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_up-z_lo)
+                                # elif z_lo <= z_coarse_lo and z_up <= z_coarse_up:
+                                #     V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_lo-z_up)
+                                elif z_lo <= z_coarse_lo and z_up <= z_coarse_up:
+                                    V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_lo-z_up)
                                 else:
-                                    raise NEerror(f"Error in homogenisation!")
+                                    raise NEError(f"Error in homogenisation!")
 
                             # perform homogenisation
                             mat4hom = {}
