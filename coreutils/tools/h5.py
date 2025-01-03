@@ -12,6 +12,7 @@ import numpy
 import logging
 from collections import OrderedDict
 from shutil import rmtree
+from coreutils.tools.utils import MyDict
 from numpy import string_, ndarray, array, asarray
 from numpy import int8, int16, int32, int64, float16, float32, float64, \
                   complex128, zeros, asarray, bytes_, dtype
@@ -20,7 +21,7 @@ from numpy import int8, int16, int32, int64, float16, float32, float64, \
 _float_types = (float, float16, float32, float64, complex, complex128)
 _int_types = (int, int8, int16, int32, int64)
 _scalar_types = (*_int_types, *_float_types, bool)
-_iter_types = (ndarray, list, dict, tuple, OrderedDict)
+_iter_types = (ndarray, list, dict, tuple, OrderedDict, MyDict)
 _types = (*_scalar_types, *_iter_types, str, bytes_,
             h5py._hl.dataset.Dataset, )
 _str2type = {i.__name__: i for i in _types}
@@ -203,7 +204,7 @@ class read():
             raise TypeError(f'Cannot read data {item} with type {type(item)}!')
         return val
 
-    def _h52dict(path, keytype=None):
+    def _h52dict(path, keytype=None, dicttype=None):
         """
         Convert group/subgroup/dataset to dictionaries.
 
@@ -217,7 +218,10 @@ class read():
         dic: dict
             group/subgroup/dataset converted to dictionary.
         """
-        dic = {}
+        if dicttype == "OrderedDict":
+            dic = OrderedDict()
+        else:
+            dic = {}
         for key, item in path.items():
             if isinstance(item, h5py._hl.dataset.Dataset):
                 pytype = item.attrs['pytype']
@@ -225,7 +229,21 @@ class read():
                 key = read._h52py(key, pytype=keytype)
                 dic[key] = read._h52py(item, pytype=pytype, keytype=keytype)
             elif isinstance(item, h5py._hl.group.Group):
-                dic[key] = read._h52dict(item)
+                pytype = item.attrs['pytype']
+                # TODO FIXME FIXME 
+                if "<class" in pytype:
+                    tmp = re.findall("<class '(.*?)'>", pytype)[0]
+                    try:
+                        if "OrderedDict" in tmp:
+                            dicttype = "OrderedDict"
+                        else:
+                            pytype_eval = eval(tmp)
+                    except NameError:
+                        pytype_eval = None
+
+                keytype = item.attrs['keytype']
+                # key = read._h52py(key, pytype=keytype)
+                dic[key] = read._h52dict(item, dicttype=dicttype)
 
         return dic
 
@@ -391,7 +409,6 @@ class write():
 
             write.item2h5(fh5, grp, key, item, attributes=attributes, skip=skip)
 
-
     def iterable2h5(fh5, dataname, iterable, attrs=None, grp=None, skip=None):
 
         if isinstance(iterable, (list, tuple)):
@@ -493,7 +510,8 @@ class write():
         # --- dict
         elif isinstance(item, dict):
             if type(item) != dict: # any subclass of dict
-                item = dict(item)
+                if not isinstance(item, OrderedDict):
+                    item = dict(item)
             write.dict2h5(fh5[group], key, item, attributes=attributes, skip=skip)
         # --- object
         elif isinstance(item, object):
