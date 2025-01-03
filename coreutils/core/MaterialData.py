@@ -15,6 +15,9 @@ from serpentTools.settings import rc as rcst
 from copy import deepcopy as copy
 from matplotlib import rc
 from os.path import join
+from itertools import product
+from collections import OrderedDict
+from re import findall
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,12 @@ xslabels = {'Chid': 'delayed fiss. emission spectrum', 'Chit': 'total fiss. emis
             'Invv': 'Inverse velocity', 'Difflenght': 'Diff. length', 'Diffcoef': 'Diff. coeff.',
             'Flx': 'Flux spectrum', 'Kerma': 'KERMA coefficient', 'Rabs': 'Reduced absorption'}
 
+nemtab2coreutils = {"transport": "Transp" ,"absorption": "Abs" ,
+                    "nuFission": "Nsf" ,"kappaFission": "FissEn" ,
+                    "P0": "S0" ,
+                    "promptFissionSpectrum": "Chit", # not a bug: done to ensure consistency between FENNECS and FRENETIC codes in steady state
+                    "inverseVelocity": "Invv" , "lambda": "lambda",
+                    "beta": "beta"}
 
 def readSerpentRes(datapath, energygrid, T, beginswith,
                    egridname=False):
@@ -438,6 +447,57 @@ class NEMaterial():
                         self.data_origin = "json"
                     else:
                         logger.debug(f'{fname} not found!')
+                        reader = 'nemtab'
+
+                if reader == 'nemtab':
+                    self.data_origin = "NEMTAB"
+                    # look into NemTab folder
+                    if Path(path.join(datapath, "nemtab")).exists():
+                        tpath = path.join(datapath, "nemtab")
+                    else:
+                        tpath = datapath
+
+                    fname = path.join(tpath, filename)
+
+                    if '.XS' not in str(fname):
+                        fname_ext = f'{str(fname)}.XS'
+                    else:
+                        fname_ext = filename
+
+                    fname = path.join(tpath, fname_ext)
+                    if Path(fname).exists():
+                        param, param_combos, data, G = data_nemtab = self._readnemtab(fname)
+                        if G != nE:
+                            raise OSError(f"Inconsistent number of groups for {fname}:{G}!={nE}")
+                        # temporary patch: just take the 1st combination
+                        P1, P2 = param_combos[0]
+                        if P1 > P2:
+                            Tf = P1
+                            Tc = P2
+                        else:
+                            Tf = P2
+                            Tc = P1
+                        # assign basic constants
+                        for key, val in data[0.0][0].items():
+                            if key == "Abs" and use_nxn:
+                                self.__dict__["Rabs"] = val
+                            elif key == "S0" and use_nxn:
+                                self.__dict__["Sp0"] = val
+                            else:
+                                self.__dict__[key] = val
+                        # assign kinetic parameters
+                        for key in data[0.0].keys():
+                            if isinstance(key, str):
+                                self.__dict__[key] = data[0.0][key]
+                        self.Chip = self.Chit*1
+                        # PATCH: add fictitious Fiss XS (keeping ESigF constant)
+                        Ef = 200.0*1.602176634E-13  # J
+                        self.Fiss = self.FissEn/Ef
+                        self.FissEn = np.asarray([Ef/1.602176634E-13]*G)
+                        check = self.FissEn*self.Fiss
+                        # WATCH OUT Sp0+Rabs treatment?
+                    else:
+                        logger.debug(f'{fname} not found!')
                         reader = 'txt'
 
                 if reader == 'txt':
@@ -752,6 +812,151 @@ class NEMaterial():
                     # single-line data (scattering matrix)
                     selfdic[key] = np.asarray(data)
 
+    def _readnemtab(self, path):
+        """
+        Read data from json file.
+
+        Parameters
+        ----------
+        path: str
+            Path to json file.
+
+        Returns
+        -------
+        None.
+
+        """
+        with open(path) as f:
+            flines = f.readlines()
+
+        init = True
+        G = -1
+        F = -1
+        # get preliminary parameters
+        for iline, line in enumerate(flines):
+            # parse info on file structure
+            if iline == 0:
+                parameters_name = tuple(line.split()[1:])
+                n_param = len(parameters_name)
+            elif iline == 1:
+                n_pts_per_param = [int(n) for n in line.split()]
+                n_combos = np.prod(n_pts_per_param)
+                param_values = OrderedDict()
+                param_list = []
+                i_count = 0
+
+            if iline > 1:
+                # assign parameters
+                if i_count < n_param:
+                    param_values[parameters_name[i_count]] = [float(p) for p in line.split()]
+                    param_list.append([float(p) for p in line.split()])
+                    i_count += 1
+                elif i_count == n_param and init:
+                    init = False
+                    param_combos = []
+                    # compute combinations
+                    param_combos = tuple([p[::-1] for p in product(*param_list[::-1])])
+                    gconst = {}
+                    data_start_line = iline
+
+                if not init:
+
+                    if line == "* \n" or line == "*\n":
+                        continue
+                    elif "* GROUP" in line:
+                        # parse group number
+                        grps = findall("\d+", line)
+                        if len(grps) == 1:
+                            g = int(grps[0])
+                        elif len(grps) == 2:
+                            g = int(grps[0])
+                            g1 = int(grps[1])
+                        else:
+                            g = 0
+                            if len(grps) != G:
+                                F = int(grps[-1])
+                    elif line.startswith("* "):
+                        if "BURNUP" in line:
+                            i_data_type = -1
+                        elif "-" not in line:
+                            # parse the data type (transport, absorption,...)
+                            data_type = line.split()[1]
+                            if i_data_type == 0 and G < 0:
+                                G = g + 0
+                            if "lambda" == data_type and g > 0:
+                                F = g + 0
+                                break
+
+                            i_data_type += 1
+                    elif "END" in line:
+                        continue
+
+        for iline, line in enumerate(flines[data_start_line: ]):
+            if not init:
+
+                if line == "* \n" or line == "*\n":
+                    continue
+                elif "* GROUP" in line:
+                    i_combo = 0
+                    # parse group number
+                    grps = findall("\d+", line)
+                    if len(grps) == 1:
+                        g = int(grps[0])
+                    elif len(grps) == 2:
+                        g = int(grps[0])
+                        g1 = int(grps[1])
+                    else:
+                        g = 1
+                elif "* " in line:
+                    if "BURNUP" in line:
+                        # parse burnup level
+                        BU = float(findall("\d+", line)[0])
+                        gconst[BU] = OrderedDict()
+                        for i_combo in range(n_combos):
+                            gconst[BU][i_combo] = {}
+                        i_data_type = -1
+                    elif "-" not in line:
+                        data_type = line.split()[1]
+                        core_data_type = nemtab2coreutils[data_type]
+                        for i_combo in range(n_combos):
+                            if data_type == "P0":
+                                gconst[BU][i_combo][core_data_type] = -np.ones((G, G))
+                            else:
+                                if data_type in ["promptFissionSpectrum", "inverseVelocity"]:
+                                    gconst[BU][core_data_type] = -np.ones((G,))
+                                elif data_type in ["beta", "lambda"]:
+                                    gconst[BU][core_data_type] = -np.ones((F,))
+                                else:
+                                    gconst[BU][i_combo][core_data_type] = -np.ones((G,))
+                        i_combo = 0
+                        i_data_type += 1
+                elif "END" in line:
+                    continue
+                else:
+                    data_lst = [float(v) for v in line.split()]
+                    for data in data_lst:
+                        if data_type == "P0":
+                            gconst[BU][i_combo][core_data_type][g1-1, g-1] = data
+                            i_combo += 1
+
+                        else:
+                            if data_type in ["beta", "lambda"]:
+                                gconst[BU][core_data_type][g-1] = data
+                                g += 1
+
+                            elif data_type in ["promptFissionSpectrum", "inverseVelocity"]:
+                                gconst[BU][core_data_type][g-1] = data
+                                g += 1
+                            else:
+                                gconst[BU][i_combo][core_data_type][g-1] = data
+                                i_combo += 1
+
+        return param_values, param_combos, gconst, G
+
+    def patch_nemtab(self):
+        print("Applying the patch for NemTab format...")
+
+
     def getxs(self, key, pos1=None, pos2=None):
         """Get material data (for a certain energy group, if needed).
 
@@ -987,7 +1192,10 @@ class NEMaterial():
         if self.use_nxn:
             InScatt = np.diag(self.Sp0)
             sTOT = self.Sp0.sum(axis=0) if len(self.Sp0.shape) > 1 else self.Sp0
-            sTOT1 = self.Sp1.sum(axis=0) if len(self.Sp1.shape) > 1 else self.Sp1
+            if hasattr(self, 'Sp1'):
+                sTOT1 = self.Sp1.sum(axis=0) if len(self.Sp1.shape) > 1 else self.Sp1
+            else:
+                sTOT1 = np.zeros(sTOT.shape)
             # if not np.array_equal(self.Rabs, self.Abs):
             #     if min(self.Rabs) < 0:
             #         self.Rabs = self.Abs
@@ -1076,7 +1284,7 @@ class NEMaterial():
         ``None``.
 
         """
-        # TODO if not existing, compute flux assuming an infinite medium
+        # TODO if not existing, compute the flux assuming an infinite medium
         E = self.energygrid
         datadic = self.__dict__
         datavail = copy(list(datadic.keys()))
@@ -1089,7 +1297,7 @@ class NEMaterial():
                     continue
                 else:
                     msg = f'{s} is missing in {self.UniName} data!'
-                    legger.error(msg)
+                    logger.error(msg)
                     raise OSError(msg)
 
         # --- compute fission production cross section
@@ -1111,7 +1319,7 @@ class NEMaterial():
                     self.Nubar = self.Nsf / self.Fiss
                     logger.warning(f"'Nubar' defined from available 'Nsf' and 'Fiss' for {self.UniName}.")
                 else:
-                    self.Nubar = self.Fiss
+                    self.Nubar = copy(self.Fiss)
                     logger.warning(f"'Nubar' set to zero for {self.UniName}.")
         else:
             raise OSError('To compute fission data at least two out of the three data "Nsf","Nubar" and "Fiss" are required')
@@ -1206,8 +1414,19 @@ class NEMaterial():
                 logger.warning(f"'Rem' not defined because 'S0' is missing for {self.UniName}.")
 
         if not hasattr(self, 'Tot'):
-            self.Tot = self.Abs + sTOT
-            logger.warning(f"'Tot' defined from available 'Abs' and 'S0' for {self.UniName}.")
+            if self.scat_n1n_exists:
+                self.Tot = self.Abs + sTOT
+                logger.warning(f"'Tot' defined from available 'Abs' and 'S0' for {self.UniName}.")
+            elif self.use_nxn:
+                self.Tot = self.Rabs +  self.Sp0.sum(axis = 0)
+                logger.warning(f"'Tot' defined from available 'Rabs' and 'Sp0' for {self.UniName}.")
+
+        if not hasattr(self, 'S1'):
+            # # estimate mu0
+            # mu0 = (self.Tot - self.Transp)/(self.S0.sum(axis = 0))
+            # self.S1 = (mu0*self.S0.T).T
+            # tot = self.Tot - self.S1.sum(axis = 0)
+            self.S1 = self.S0
 
         # ensure non-zero total XS
         self.bad_data = False
@@ -1253,9 +1472,9 @@ class NEMaterial():
         isFiss = self.Fiss.max() > 0
         if not hasattr(self, "FissEn"):
             if isFiss:
-                self.FissEn = np.array([200]*self.nE)
+                self.FissEn = np.asarray([200]*self.nE)
             else:
-                self.FissEn = np.array([0]*self.nE)
+                self.FissEn = np.asarray([0]*self.nE)
 
         if not hasattr(self, "Chit"):
             if isFiss:
@@ -1299,7 +1518,7 @@ class NEMaterial():
 
             if not hasattr(self, "Chid"):
                 if isFiss:
-                    self.Chip = (self.Chit-np.dot(self.beta, self.Chid))/(1-self.beta.sum())
+                    self.Chid = (self.Chit-self.Chip*(1-self.beta.sum()))/(self.beta.sum())
                 else:
                     self.Chid = np.zeros((self.NPF, self.nE))
 
