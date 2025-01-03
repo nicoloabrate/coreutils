@@ -292,7 +292,7 @@ def AxialGeomPlot(core, which, time=0, label=False, assembly_name=False,
                             if zn2 > upz[iz2]:
                                 iz2 += 1
                         # --- plot node center
-                        for izcol in range(izn, nZ):
+                        for izcol in range(izn, len(back_cols)):
                             if node >= loz[izcol] and node <= upz[izcol]:
                                 izn = izcol
                                 break
