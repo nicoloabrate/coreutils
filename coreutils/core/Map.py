@@ -2,6 +2,7 @@ import logging
 import numpy as np
 import itertools as it
 from numpy import pi, cos, sin
+from collections import OrderedDict
 from coreutils.core.UnfoldCore import UnfoldCore
 logger = logging.getLogger(__name__)
 
@@ -123,18 +124,18 @@ class Map:
         if Geom.type == "H":
             # define assembly numeration according to FRENETIC
             frenmap = Map.__drawfrenmap(self)
+            # Serpent to FRENETIC dict
+            self.serp2fren = OrderedDict(zip(serpmap[:], frenmap[:]))
             # sort FRENETIC map in ascending way
             sortind = np.argsort(frenmap)
             frenmap = frenmap[sortind]
-            # sort Serpent map accordingly
-            serpmap = serpmap[sortind]
+            # # sort Serpent map accordingly
+            # serpmap = serpmap[sortind]
             # FRENETIC to Serpent dict
-            self.fren2serp = dict(zip(frenmap, serpmap))
-            # Serpent to FRENETIC dict
-            self.serp2fren = dict(zip(serpmap, frenmap))
+            self.fren2serp = dict(zip(frenmap, serpmap[sortind]))
 
         # Serpent centers map
-        self.serpcentermap = dict(zip(serpmap, coord))
+        self.serpcentermap = dict(zip(serpmap[sortind], coord))
 
     def getSAsextant(self, sext):
         """Get SAs belonging to a certain core sextant (for hexagonal SAs).
