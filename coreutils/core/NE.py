@@ -864,7 +864,7 @@ class NE:
                                     elif z_lo >= z_coarse_lo and z_up > z_coarse_up:
                                         V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_up-z_lo)
                                     elif z_lo <= z_coarse_lo and z_up <= z_coarse_up:
-                                        V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_lo-z_up)
+                                        V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_coarse_lo)
                                     else:
                                         raise NEError(f"Error in homogenisation!")
 
@@ -1282,7 +1282,7 @@ class NE:
                                     elif z_lo >= z_coarse_lo and z_up > z_coarse_up:
                                         V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_up-z_lo)
                                     elif z_lo <= z_coarse_lo and z_up <= z_coarse_up:
-                                        V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_lo-z_up)
+                                        V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_coarse_lo)
                                     else:
                                         raise NEError(f"Error in homogenisation!")
 
@@ -1404,10 +1404,8 @@ class NE:
                                     V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_lo)
                                 elif z_lo >= z_coarse_lo and z_up > z_coarse_up:
                                     V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_up-z_lo)
-                                # elif z_lo <= z_coarse_lo and z_up <= z_coarse_up:
-                                #     V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_lo-z_up)
                                 elif z_lo <= z_coarse_lo and z_up <= z_coarse_up:
-                                    V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_coarse_lo-z_up)
+                                    V_homog[iM] = core.Geometry.AssemblyGeometry.compute_volume(z_up-z_coarse_lo)
                                 else:
                                     raise NEError(f"Error in homogenisation!")
 
